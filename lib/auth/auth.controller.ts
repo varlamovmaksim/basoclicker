@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Errors } from "@farcaster/quick-auth";
 import { getAuthenticatedUser } from "./auth.service";
 
-function getUrlHost(request: NextRequest): string {
+export function getUrlHost(request: NextRequest): string {
   const origin = request.headers.get("origin");
   if (origin) {
     try {
@@ -25,6 +25,26 @@ function getUrlHost(request: NextRequest): string {
   return "localhost:3000";
 }
 
+const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
+const DEV_AUTH_FID = "0";
+
+/** Extract auth user (fid) from request. Returns null if missing/invalid token. */
+export async function getAuthFromRequest(
+  request: NextRequest
+): Promise<{ fid: string } | null> {
+  const authorization = request.headers.get("Authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7);
+  if (IS_DEV && token === "dev") return { fid: DEV_AUTH_FID };
+  const domain = getUrlHost(request);
+  try {
+    const user = await getAuthenticatedUser(token, domain);
+    return { fid: user.fid };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/auth — validate Authorization header, verify JWT, return user.
  * Controller: parse request, call service, map to HTTP response.
@@ -38,6 +58,13 @@ export async function handleGetAuth(
   }
 
   const token = authorization.slice(7);
+  if (IS_DEV && token === "dev") {
+    return NextResponse.json({
+      success: true,
+      user: { fid: DEV_AUTH_FID, issuedAt: undefined, expiresAt: undefined },
+    });
+  }
+
   const domain = getUrlHost(request);
 
   try {

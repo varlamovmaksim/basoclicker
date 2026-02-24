@@ -27,10 +27,6 @@ export default function Success(): React.ReactElement {
 
   return (
     <div className={styles.container}>
-      <button className={styles.closeButton} type="button">
-        ✕
-      </button>
-      
       <div className={styles.content}>
         <div className={styles.successMessage}>
           <div className={styles.checkmark}>

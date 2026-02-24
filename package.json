@@ -6,14 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "NODE_TLS_REJECT_UNAUTHORIZED=0 drizzle-kit migrate",
+    "db:push": "NODE_TLS_REJECT_UNAUTHORIZED=0 drizzle-kit push"
   },
   "dependencies": {
     "@farcaster/miniapp-sdk": "^0.2.0",
     "@farcaster/miniapp-wagmi-connector": "^1.1.0",
     "@farcaster/quick-auth": "^0.0.7",
     "@tanstack/react-query": "^5.81.5",
+    "drizzle-orm": "^0.45.1",
     "next": "15.3.6",
+    "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "viem": "^2.31.6",
@@ -26,6 +31,8 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
+    "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
     "typescript": "^5"

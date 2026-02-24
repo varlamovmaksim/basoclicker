@@ -6,7 +6,7 @@ Reusable across base miniapp projects. Copy to a new repo and adjust app name if
 
 - **Type:** Base miniapp (Next.js, App Router).
 - **Target runtimes:** Production = base miniapp only. Dev/test = browser only. Do not optimize or document for other environments (e.g. standalone PWA, other embed targets).
-- **Stack:** Next.js (App Router), TypeScript. If the app needs a DB → Drizzle as ORM.
+- **Stack:** Next.js (App Router), TypeScript. If the app needs a DB → Drizzle as ORM; use **postgres** (the `postgres` npm package) as the PostgreSQL connector.
 
 ## Build & test commands
 
@@ -35,8 +35,8 @@ Reusable across base miniapp projects. Copy to a new repo and adjust app name if
 
 **Shared**
 
-- `lib/db/` — Drizzle schema, client, and migrations when DB is used.
-- Config at root: e.g. `farcaster.config.ts`; env via `.env.local` / `.example.env`.
+- `lib/db/` — Drizzle schema, client (using **postgres** as the PostgreSQL connector), and migrations when DB is used.
+- Config at root: e.g. `farcaster.config.ts`; env via `.env.local`; copy from `.env.example`.
 
 ## Backend conventions
 
