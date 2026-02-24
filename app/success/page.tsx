@@ -1,12 +1,11 @@
 "use client";
 
-import sdk from '@farcaster/miniapp-sdk';
+import sdk from "@farcaster/miniapp-sdk";
 import { farcasterConfig } from "../../farcaster.config";
 import styles from "./page.module.css";
 
-export default function Success() {
-
-  const handleShare = async () => {
+export default function Success(): React.ReactElement {
+  const handleShare = async (): Promise<void> => {
     try {
       const text = `Yay! I just joined the waitlist for ${farcasterConfig.miniapp.name.toUpperCase()}! `;
 

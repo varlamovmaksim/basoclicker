@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import styles from "./TapGame.module.css";
 
-export function TapGame() {
+export function TapGame(): React.ReactElement {
   const [score, setScore] = useState(0);
   const [isPressing, setIsPressing] = useState(false);
 
