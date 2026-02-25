@@ -96,6 +96,7 @@ export function DevTapPanel({
 }: DevTapPanelProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const now = Date.now();
   const timeSinceCommit = state.lastCommitTime
     ? formatElapsed(state.lastCommitTime)
@@ -116,14 +117,29 @@ export function DevTapPanel({
   const fullListCommits = [...history].reverse();
 
   return (
-    <div
-      className={styles.panel + (fullscreen ? " " + styles.fullscreen : "")}
-      role="region"
-      aria-label="Dev tap state panel"
-    >
-      <div className={styles.titleRow}>
-        <span className={styles.title}>Tap game (dev)</span>
-        <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+    <>
+      {!isOpen && (
+        <button
+          type="button"
+          className={styles.toggleTab}
+          onClick={() => setIsOpen(true)}
+          title="Open dev panel"
+          aria-label="Open dev panel"
+        />
+      )}
+      <div
+        className={
+          styles.panel +
+          (fullscreen ? " " + styles.fullscreen : "") +
+          (!isOpen ? " " + styles.panelHidden : "")
+        }
+        role="region"
+        aria-label="Dev tap state panel"
+        aria-hidden={!isOpen}
+      >
+        <div className={styles.titleRow}>
+          <span className={styles.title}>Tap game (dev)</span>
+          <span style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span className={styles.sessionIdWrap}>
             <span
               className={styles.sessionIdShort}
@@ -154,6 +170,15 @@ export function DevTapPanel({
             aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
           >
             {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+          </button>
+          <button
+            type="button"
+            className={styles.closeBtn}
+            onClick={() => setIsOpen(false)}
+            title="Close panel"
+            aria-label="Close panel"
+          >
+            ×
           </button>
         </span>
       </div>
@@ -228,5 +253,6 @@ export function DevTapPanel({
         </div>
       </div>
     </div>
+    </>
   );
 }

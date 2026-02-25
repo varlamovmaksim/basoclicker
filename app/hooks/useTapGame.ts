@@ -8,6 +8,52 @@ const COMMIT_INTERVAL_MS = 5000;
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
+const STORAGE_KEY = "tapper_state";
+
+/** Persisted shape for in-browser state (localStorage). */
+interface StoredTapState {
+  serverBalance: number;
+  lastServerSeq: number;
+  sessionId: string | null;
+  localTapDelta: number;
+  lastCommitTime: number;
+}
+
+function getStoredState(): StoredTapState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredTapState;
+    if (
+      typeof parsed.serverBalance !== "number" ||
+      typeof parsed.lastServerSeq !== "number" ||
+      typeof parsed.localTapDelta !== "number" ||
+      typeof parsed.lastCommitTime !== "number"
+    ) {
+      return null;
+    }
+    return {
+      serverBalance: parsed.serverBalance,
+      lastServerSeq: parsed.lastServerSeq,
+      sessionId: parsed.sessionId ?? null,
+      localTapDelta: Math.max(0, parsed.localTapDelta),
+      lastCommitTime: parsed.lastCommitTime,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveState(state: StoredTapState): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 const DEBUG_TAP = false; // set to true to enable [tap] logs
 function logTap(msg: string, ...args: unknown[]): void {
   if (DEBUG_TAP && typeof window !== "undefined") {
@@ -56,15 +102,23 @@ export interface UseTapGameReturn {
   debug?: TapGameDebug;
 }
 
+function getInitialStoredState(): StoredTapState | null {
+  if (typeof window === "undefined") return null;
+  return getStoredState();
+}
+
 export function useTapGame(): UseTapGameReturn {
-  const [serverBalance, setServerBalance] = useState(0);
-  const [localTapDelta, setLocalTapDelta] = useState(0);
-  const [lastServerSeq, setLastServerSeq] = useState(0);
-  const [lastCommitTime, setLastCommitTime] = useState(0);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const stored = getInitialStoredState();
+  const [serverBalance, setServerBalance] = useState(stored?.serverBalance ?? 0);
+  const [localTapDelta, setLocalTapDelta] = useState(stored?.localTapDelta ?? 0);
+  const [lastServerSeq, setLastServerSeq] = useState(stored?.lastServerSeq ?? 0);
+  const [lastCommitTime, setLastCommitTime] = useState(stored?.lastCommitTime ?? 0);
+  const [sessionId, setSessionId] = useState<string | null>(stored?.sessionId ?? null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(0);
+  const tokenRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const commitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitInFlightRef = useRef(false);
   const commitAnchorRef = useRef<{ sentDelta: number } | null>(null);
@@ -94,6 +148,7 @@ export function useTapGame(): UseTapGameReturn {
 
   const fetchSession = useCallback(async (): Promise<boolean> => {
     const token = await getToken();
+    tokenRef.current = token ?? null;
     if (!token) {
       setError("Not signed in");
       setIsLoading(false);
@@ -122,8 +177,15 @@ export function useTapGame(): UseTapGameReturn {
     setServerBalance(data.balance);
     setLastServerSeq(data.last_seq);
     seqRef.current = data.last_seq;
-    setLocalTapDelta(0);
-    setLastCommitTime(Date.now());
+    const stored = getStoredState();
+    if (stored?.sessionId === data.session_id && stored.localTapDelta > 0) {
+      setLocalTapDelta(stored.localTapDelta);
+      setLastCommitTime(stored.lastCommitTime);
+      logTap("fetchSession restored uncommitted", { localTapDelta: stored.localTapDelta });
+    } else {
+      setLocalTapDelta(0);
+      setLastCommitTime(Date.now());
+    }
     setError(null);
     logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
     return true;
@@ -153,6 +215,7 @@ export function useTapGame(): UseTapGameReturn {
   const commitRef = useRef<
     (delta: number, commitTime: number, balanceAtSend: number) => Promise<void>
   >(() => Promise.resolve());
+  const scheduleNextBatchIfNeededRef = useRef<() => void>(() => {});
 
   const commitFromRefs = useCallback(() => {
     commitTimeoutRef.current = null;
@@ -183,9 +246,14 @@ export function useTapGame(): UseTapGameReturn {
     if (IS_DEV) setDebugTimerScheduled(true);
   }, [commitFromRefs]);
 
+  useEffect(() => {
+    scheduleNextBatchIfNeededRef.current = scheduleNextBatchIfNeeded;
+  }, [scheduleNextBatchIfNeeded]);
+
   const commit = useCallback(
     async (delta: number, commitTime: number, balanceAtSend: number): Promise<void> => {
       const token = await getToken();
+      tokenRef.current = token ?? null;
       if (!token || !sessionId || delta <= 0) return;
 
       const seq = seqRef.current + 1;
@@ -293,6 +361,10 @@ export function useTapGame(): UseTapGameReturn {
   );
 
   useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
     commitRef.current = commit;
     return () => {
       commitRef.current = () => Promise.resolve();
@@ -333,6 +405,78 @@ export function useTapGame(): UseTapGameReturn {
       return next;
     });
   }, [checkCommitTrigger]);
+
+  // Sync seq ref from restored storage so commit uses correct seq before fetchSession completes
+  useEffect(() => {
+    const s = getStoredState();
+    if (s != null) seqRef.current = s.lastServerSeq;
+  }, []);
+
+  // When we finish loading with restored uncommitted taps, schedule a commit once
+  useEffect(() => {
+    if (!isLoading && sessionId && localTapDelta > 0) {
+      scheduleNextBatchIfNeededRef.current();
+    }
+  }, [isLoading]); // intentional: run only when loading finishes, then schedule for current localTapDelta
+
+  // Persist state to localStorage so it survives refresh/close
+  useEffect(() => {
+    saveState({
+      serverBalance,
+      lastServerSeq,
+      sessionId,
+      localTapDelta,
+      lastCommitTime,
+    });
+  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime]);
+
+  // Commit current uncommitted taps on app close (fire-and-forget with keepalive), regardless of in-flight state
+  const flushCommitOnUnloadRef = useRef((): void => {
+    const token = tokenRef.current;
+    const sid = sessionIdRef.current;
+    const { localTapDelta: d, lastCommitTime: t, serverBalance: s } = stateRef.current;
+    if (!token || !sid || d <= 0) return;
+    const seq = seqRef.current + 1;
+    const now = Date.now();
+    const body = JSON.stringify({
+      session_id: sid,
+      seq,
+      taps_delta: d,
+      duration_ms: now - t,
+      client_balance_view: s + d,
+      client_ts_start: t,
+      client_ts_end: now,
+    });
+    const base = getApiBase();
+    try {
+      fetch(`${base}/api/v1/tap/commit`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body,
+        keepalive: true,
+      });
+    } catch {
+      // ignore
+    }
+  });
+
+  useEffect(() => {
+    const onBeforeUnload = (): void => {
+      flushCommitOnUnloadRef.current();
+      saveState({
+        serverBalance,
+        lastServerSeq,
+        sessionId,
+        localTapDelta,
+        lastCommitTime,
+      });
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime]);
 
   useEffect(() => {
     let cancelled = false;
