@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTapGame } from "../hooks/useTapGame";
 import { DevTapPanel } from "./DevTapPanel";
 import styles from "./TapGame.module.css";
@@ -10,6 +10,7 @@ const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 export function TapGame(): React.ReactElement {
   const { state, handleTap, score, debug } = useTapGame();
   const [isPressing, setIsPressing] = useState(false);
+  const activeTouchCountRef = useRef(0);
 
   const onTap = useCallback(() => {
     handleTap();
@@ -17,6 +18,27 @@ export function TapGame(): React.ReactElement {
     const t = setTimeout(() => setIsPressing(false), 120);
     return () => clearTimeout(t);
   }, [handleTap]);
+
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      e.preventDefault();
+      const touches = e.changedTouches;
+      for (let i = 0; i < touches.length; i++) {
+        handleTap();
+      }
+      activeTouchCountRef.current += touches.length;
+      setIsPressing(activeTouchCountRef.current > 0);
+    },
+    [handleTap]
+  );
+
+  const onTouchEndOrCancel = useCallback((e: React.TouchEvent) => {
+    activeTouchCountRef.current = Math.max(
+      0,
+      activeTouchCountRef.current - e.changedTouches.length
+    );
+    setIsPressing(activeTouchCountRef.current > 0);
+  }, []);
 
   if (state.isLoading) {
     return (
@@ -46,10 +68,9 @@ export function TapGame(): React.ReactElement {
           type="button"
           className={`${styles.tapTarget} ${isPressing ? styles.tapTargetActive : ""}`}
           onClick={onTap}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            onTap();
-          }}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEndOrCancel}
+          onTouchCancel={onTouchEndOrCancel}
           aria-label="Tap to score"
         >
           <span className={styles.tapHint}>TAP</span>
