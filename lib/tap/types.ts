@@ -14,7 +14,7 @@ export interface TapCommitRequest {
   };
 }
 
-/** Response for POST /api/v1/tap/commit */
+/** Response for POST /api/v1/tap/commit (full state so client can resync without GET) */
 export interface TapCommitResponse {
   ok: boolean;
   server_seq?: number;
@@ -22,6 +22,9 @@ export interface TapCommitResponse {
   balance?: number;
   server_time?: number;
   resync_required?: boolean;
+  /** Full state for resync without GET /api/v1/tap/state */
+  session_id?: string;
+  last_seq?: number;
 }
 
 /** Response for GET /api/v1/tap/state */

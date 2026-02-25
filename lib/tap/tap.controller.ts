@@ -72,6 +72,8 @@ export async function handleTapCommit(
         resync_required: result.resync_required ?? true,
         balance: result.balance,
         server_time: result.server_time,
+        session_id: result.session_id,
+        last_seq: result.last_seq,
       },
       { status: 200 }
     );
@@ -84,6 +86,8 @@ export async function handleTapCommit(
     balance: result.balance,
     server_time: result.server_time,
     resync_required: false,
+    session_id: result.session_id ?? parsed.session_id,
+    last_seq: result.last_seq ?? result.server_seq,
   });
 }
 

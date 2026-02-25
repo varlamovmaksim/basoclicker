@@ -38,6 +38,8 @@ export async function commitTaps(
     return {
       ok: false,
       resync_required: true,
+      session_id: body.session_id,
+      last_seq: user.lastSeq,
     };
   }
 
@@ -48,7 +50,12 @@ export async function commitTaps(
   return await db.transaction(async (tx) => {
     const currentUser = await getUserById(user.id, tx);
     if (!currentUser) {
-      return { ok: false, resync_required: true };
+      return {
+        ok: false,
+        resync_required: true,
+        session_id: body.session_id,
+        last_seq: user.lastSeq,
+      };
     }
 
     const expectedSeq = currentUser.lastSeq + 1;
@@ -56,6 +63,8 @@ export async function commitTaps(
       return {
         ok: false,
         resync_required: true,
+        session_id: body.session_id,
+        last_seq: currentUser.lastSeq,
       };
     }
 
@@ -68,7 +77,14 @@ export async function commitTaps(
       deltaTSeconds =
         (serverNow.getTime() - currentUser.lastCommitAt.getTime()) / 1000;
       if (deltaTSeconds < MIN_DELTA_T_SEC) {
-        return { ok: false, resync_required: false };
+        return {
+          ok: false,
+          resync_required: false,
+          session_id: body.session_id,
+          last_seq: currentUser.lastSeq,
+          balance: currentUser.balance,
+          server_time: serverNow.getTime(),
+        };
       }
       maxAllowed = Math.floor(BASE_MAX_TPS * deltaTSeconds);
     }
@@ -122,6 +138,8 @@ export async function commitTaps(
       balance: newBalance,
       server_time: serverNow.getTime(),
       resync_required: false,
+      session_id: body.session_id,
+      last_seq: body.seq,
     };
   });
 }
