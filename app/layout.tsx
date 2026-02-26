@@ -9,6 +9,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: farcasterConfig.miniapp.name,
     description: farcasterConfig.miniapp.description,
+    themeColor: "#0a0a0a",
     other: {
       "fc:frame": JSON.stringify({
         version: farcasterConfig.miniapp.version,
