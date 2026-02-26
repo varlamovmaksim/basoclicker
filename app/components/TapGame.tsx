@@ -7,13 +7,18 @@ import styles from "./TapGame.module.css";
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
+/** Max ms after touchStart to treat a click as synthetic (ignore for counting). */
+const SYNTHETIC_CLICK_MS = 400;
+
 export function TapGame(): React.ReactElement {
   const { state, handleTap, score, debug } = useTapGame();
   const [isPressing, setIsPressing] = useState(false);
   const activeTouchCountRef = useRef(0);
+  const lastTouchStartRef = useRef(0);
 
   const onTap = useCallback(() => {
-    handleTap();
+    const isSyntheticClick = Date.now() - lastTouchStartRef.current < SYNTHETIC_CLICK_MS;
+    if (!isSyntheticClick) handleTap();
     setIsPressing(true);
     const t = setTimeout(() => setIsPressing(false), 120);
     return () => clearTimeout(t);
@@ -22,6 +27,7 @@ export function TapGame(): React.ReactElement {
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
       e.preventDefault();
+      lastTouchStartRef.current = Date.now();
       const touches = e.changedTouches;
       for (let i = 0; i < touches.length; i++) {
         handleTap();
