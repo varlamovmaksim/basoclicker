@@ -6,7 +6,7 @@ Reusable across base miniapp projects. Copy to a new repo and adjust app name if
 
 - **Type:** Base miniapp (Next.js, App Router).
 - **Target runtimes:** Production = base miniapp only. Dev/test = browser only. Do not optimize or document for other environments (e.g. standalone PWA, other embed targets).
-- **Stack:** Next.js (App Router), TypeScript. If the app needs a DB → Drizzle as ORM; use **postgres** (the `postgres` npm package) as the PostgreSQL connector.
+- **Stack:** Next.js (App Router), TypeScript. If the app needs a DB → Drizzle as ORM; use **postgres** (the `postgres` npm package) as the PostgreSQL connector. For styles prefer Tailwind.
 
 ## Build & test commands
 
@@ -49,6 +49,8 @@ Reusable across base miniapp projects. Copy to a new repo and adjust app name if
 ## Frontend conventions
 
 - Functional components and hooks; colocate styles with components (CSS modules).
+- Prefer **Tailwind CSS** utility classes for layout, spacing, typography, and simple visual styles.
+  - Use CSS Modules or global CSS only where Tailwind is a bad fit (complex SVG animations, keyframes, highly custom visuals).
 - Single responsibility; small presentational components + containers/hooks where needed.
 - Follow existing patterns in `app/components/` and `app/providers/`.
 

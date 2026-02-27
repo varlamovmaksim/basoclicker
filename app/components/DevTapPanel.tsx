@@ -16,8 +16,8 @@ export interface DevTapPanelProps {
   score: number;
   displayEnergy: number;
   debug: TapGameDebug;
-  onRestoreEnergy?: () => Promise<void>;
-  onRefreshState?: () => Promise<void>;
+  /** When false, hides the boosters section (used by Dev menu). */
+  showBoosters?: boolean;
 }
 
 /** Elapsed time since a timestamp (e.g. since previous commit). */
@@ -105,39 +105,15 @@ export function DevTapPanel({
   score,
   displayEnergy,
   debug,
-  onRestoreEnergy,
-  onRefreshState,
+  showBoosters = true,
 }: DevTapPanelProps): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  const [restoring, setRestoring] = useState(false);
-  const [boosterUpdating, setBoosterUpdating] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(true);
   const now = Date.now();
   const timeSinceCommit = state.lastCommitTime
     ? formatElapsed(state.lastCommitTime)
     : "—";
-
-  const handleRestoreEnergy = useCallback(async () => {
-    if (!onRestoreEnergy) return;
-    setRestoring(true);
-    try {
-      const token = IS_DEV
-        ? "dev"
-        : (await sdk.quickAuth.getToken()).token ?? null;
-      if (!token) return;
-      const res = await fetch(`${getApiBase()}/api/dev/energy`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      if (res.ok) await onRestoreEnergy();
-    } finally {
-      setRestoring(false);
-    }
-  }, [onRestoreEnergy]);
 
   const copySessionId = useCallback(() => {
     const id = state.sessionId;
@@ -147,38 +123,6 @@ export function DevTapPanel({
       setTimeout(() => setCopied(false), 1500);
     });
   }, [state.sessionId]);
-
-  const setBoosterLevel = useCallback(
-    async (key: "points" | "energy_max" | "energy_regen" | "auto_taps", delta: number) => {
-      const levels = state.boosterLevels;
-      const current = levels?.[key] ?? 0;
-      const nextLevel = Math.max(0, current + delta);
-      setBoosterUpdating(key);
-      try {
-        const token = IS_DEV
-          ? "dev"
-          : (await sdk.quickAuth.getToken()).token ?? null;
-        if (!token) return;
-        const body: Record<string, number> = {};
-        if (key === "points") body.points_booster_level = nextLevel;
-        else if (key === "energy_max") body.energy_max_booster_level = nextLevel;
-        else if (key === "energy_regen") body.energy_regen_booster_level = nextLevel;
-        else body.auto_taps_booster_level = nextLevel;
-        const res = await fetch(`${getApiBase()}/api/dev/boosters`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-        });
-        if (res.ok && onRefreshState) await onRefreshState();
-      } finally {
-        setBoosterUpdating(null);
-      }
-    },
-    [state.boosterLevels, onRefreshState]
-  );
 
   const commitInFlightValue = debug.commitInFlight ? "yes" : timeSinceCommit;
   const history = debug.commitHistory ?? [];
@@ -290,18 +234,6 @@ export function DevTapPanel({
               <span className={styles.key}>auto taps</span>
               <span className={styles.value}>{state.autoTapsPerMin}/min</span>
             </div>
-            {onRestoreEnergy && (
-              <div className={styles.row}>
-                <button
-                  type="button"
-                  className={styles.restoreEnergyBtn}
-                  onClick={handleRestoreEnergy}
-                  disabled={restoring}
-                >
-                  {restoring ? "Restoring…" : "Restore energy"}
-                </button>
-              </div>
-            )}
           </div>
           <div className={styles.section}>
             <div className={styles.sectionTitle}>Processes</div>
@@ -332,9 +264,10 @@ export function DevTapPanel({
           </div>
         </div>
 
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Boosters</div>
-          {[
+        {showBoosters && (
+          <div className={styles.section}>
+            <div className={styles.sectionTitle}>Boosters</div>
+            {[
             {
               key: "points" as const,
               label: "Points",
@@ -355,10 +288,9 @@ export function DevTapPanel({
               label: "Auto taps",
               effect: (l: number) => `${l * 5}/min`,
             },
-          ].map(({ key, label, effect }) => {
+            ].map(({ key, label, effect }) => {
             const level = state.boosterLevels?.[key] ?? 0;
             const nextPrice = state.boosterNextPrices?.[key] ?? "—";
-            const updating = boosterUpdating === key;
             return (
               <div key={key} className={styles.boosterRow}>
                 <div className={styles.row}>
@@ -369,19 +301,11 @@ export function DevTapPanel({
                   <span className={styles.key}>next</span>
                   <span className={styles.value}>{nextPrice}</span>
                 </div>
-                <button
-                  type="button"
-                  className={styles.boosterBtn}
-                  onClick={() => setBoosterLevel(key, 1)}
-                  disabled={updating}
-                  title={`Add 1 level (cost ${nextPrice})`}
-                >
-                  {updating ? "…" : "+1"}
-                </button>
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
 
         <div className={styles.commitsSection + " " + styles.commitsScroll}>
           <div className={styles.sectionTitle}>

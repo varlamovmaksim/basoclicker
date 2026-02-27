@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @layer base {
   :root {
     --background: #ffffff;
@@ -63,5 +67,245 @@
     html {
       color-scheme: dark;
     }
+  }
+}
+
+@layer components {
+  .baso-wrap {
+    @apply flex min-h-screen min-h-dvh w-full justify-center bg-white px-4 py-4;
+  }
+
+  .baso-phone {
+    @apply relative flex w-full max-w-md flex-col overflow-hidden bg-white;
+  }
+
+  .stageSkinWhite {
+    background: #ffffff;
+  }
+
+  .stageSkinGrid {
+    background:
+      linear-gradient(#ffffff, #ffffff),
+      linear-gradient(90deg, rgba(30, 99, 255, 0.08) 1px, transparent 1px),
+      linear-gradient(rgba(30, 99, 255, 0.08) 1px, transparent 1px);
+    background-size: 100% 100%, 28px 28px, 28px 28px;
+    background-position: 0 0, 0 0, 0 0;
+  }
+
+  .stageSkinConfetti {
+    background:
+      radial-gradient(circle at 20% 30%, rgba(255, 208, 226, 0.55) 0 18%, transparent 18% 100%),
+      radial-gradient(circle at 80% 40%, rgba(30, 99, 255, 0.12) 0 20%, transparent 20% 100%),
+      radial-gradient(circle at 35% 80%, rgba(242, 180, 109, 0.35) 0 22%, transparent 22% 100%),
+      #ffffff;
+  }
+
+  .stageSkinGlow {
+    background:
+      radial-gradient(circle at 50% 55%, rgba(30, 99, 255, 0.14), transparent 62%),
+      #ffffff;
+  }
+
+  .pop {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-weight: 900;
+    color: #0b3dcc;
+    pointer-events: none;
+    animation: pop 240ms ease-out forwards;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+  }
+
+  .eat0 .basoBody {
+    transform-origin: 124px 176px;
+    animation: bodyPulseA 170ms ease-out;
+  }
+
+  .eat1 .basoBody {
+    transform-origin: 124px 176px;
+    animation: bodyPulseB 170ms ease-out;
+  }
+
+  .eat0 .donutGroup {
+    transform-origin: 222px 178px;
+    animation: donutToMouthA 170ms ease-out;
+  }
+
+  .eat1 .donutGroup {
+    transform-origin: 222px 178px;
+    animation: donutToMouthB 170ms ease-out;
+  }
+
+  .eat0 .mouthSmile {
+    animation: mouthSwapSmileA 170ms ease-out;
+  }
+
+  .eat1 .mouthSmile {
+    animation: mouthSwapSmileB 170ms ease-out;
+  }
+
+  .eat0 .mouthOpen {
+    animation: mouthSwapOpenA 170ms ease-out;
+  }
+
+  .eat1 .mouthOpen {
+    animation: mouthSwapOpenB 170ms ease-out;
+  }
+
+  .eat0 .crumbs {
+    animation: crumbsA 220ms ease-out;
+  }
+
+  .eat1 .crumbs {
+    animation: crumbsB 220ms ease-out;
+  }
+}
+
+@keyframes bodyPulseA {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes bodyPulseB {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes donutToMouthA {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate(-32px, -18px) rotate(-6deg) scale(1.015);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes donutToMouthB {
+  0% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate(-32px, -18px) rotate(-6deg) scale(1.015);
+  }
+  100% {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+  }
+}
+
+@keyframes mouthSwapSmileA {
+  0% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes mouthSwapSmileB {
+  0% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes mouthSwapOpenA {
+  0% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes mouthSwapOpenB {
+  0% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes crumbsA {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(2px, -2px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(10px, -12px);
+  }
+}
+
+@keyframes crumbsB {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 1;
+    transform: translate(2px, -2px);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(10px, -12px);
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(-18px) scale(1);
   }
 }
