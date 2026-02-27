@@ -8,6 +8,20 @@
       "when": 1771946325442,
       "tag": "0000_sturdy_blue_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772110077486,
+      "tag": "0001_windy_moondragon",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1772115528705,
+      "tag": "0002_illegal_tag",
+      "breakpoints": true
     }
   ]
 }

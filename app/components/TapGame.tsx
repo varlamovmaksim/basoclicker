@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { useTapGame } from "../hooks/useTapGame";
+import type { TapGameDebug, TapGameState } from "../hooks/useTapGame";
 import { DevTapPanel } from "./DevTapPanel";
 import styles from "./TapGame.module.css";
 
@@ -10,8 +10,23 @@ const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 /** Max ms after touchStart to treat a click as synthetic (ignore for counting). */
 const SYNTHETIC_CLICK_MS = 400;
 
-export function TapGame(): React.ReactElement {
-  const { state, handleTap, score, debug } = useTapGame();
+export interface TapGameProps {
+  state: TapGameState;
+  handleTap: () => void;
+  score: number;
+  displayEnergy: number;
+  debug?: TapGameDebug;
+  refreshState?: () => Promise<void>;
+}
+
+export function TapGame({
+  state,
+  handleTap,
+  score,
+  displayEnergy,
+  debug,
+  refreshState,
+}: TapGameProps): React.ReactElement {
   const [isPressing, setIsPressing] = useState(false);
   const activeTouchCountRef = useRef(0);
   const lastTouchStartRef = useRef(0);
@@ -70,6 +85,18 @@ export function TapGame(): React.ReactElement {
           <span className={styles.score}>{score}</span>
         </div>
 
+        <div className={styles.energySection}>
+          <span className={styles.energyLabel}>
+            Energy {displayEnergy} / {state.energyMax}
+          </span>
+          <div className={styles.energyBarTrack} role="progressbar" aria-valuenow={displayEnergy} aria-valuemin={0} aria-valuemax={state.energyMax} aria-label="Energy">
+            <div
+              className={styles.energyBarFill}
+              style={{ width: `${state.energyMax > 0 ? (displayEnergy / state.energyMax) * 100 : 0}%` }}
+            />
+          </div>
+        </div>
+
         <button
           type="button"
           className={`${styles.tapTarget} ${isPressing ? styles.tapTargetActive : ""}`}
@@ -86,7 +113,14 @@ export function TapGame(): React.ReactElement {
       </div>
 
       {IS_DEV && debug && (
-        <DevTapPanel state={state} score={score} debug={debug} />
+        <DevTapPanel
+          state={state}
+          score={score}
+          displayEnergy={displayEnergy}
+          debug={debug}
+          onRestoreEnergy={refreshState}
+          onRefreshState={refreshState}
+        />
       )}
     </>
   );

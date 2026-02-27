@@ -8,18 +8,92 @@ import {
   getUserById,
   incrementSessionCommitCount,
   insertTapCommit,
+  purchaseBoosterLevel,
+  setUserEnergy,
   updateUserAfterCommit,
+  type UserRow,
 } from "./tap.repository";
-import type { TapCommitRequest, TapCommitResponse, TapStateResponse } from "./types";
-import { getAbuseLevel, handleAbuse } from "./abuse";
+import type { BoosterTypeKey } from "./tap.repository";
+import type {
+  BoosterLevels,
+  BoosterNextPrices,
+  TapCommitRequest,
+  TapCommitResponse,
+  TapStateResponse,
+} from "./types";
 import { tapConfig } from "./config";
+import {
+  BOOSTER_BASE_PRICES,
+  BOOSTER_EFFECTS,
+  getBoosterNextPrice,
+} from "./boosters.config";
 
 export interface AuthUserForTap {
   fid: string;
 }
 
+export interface EffectiveBoosterStats {
+  energyMax: number;
+  energyRegenPerMin: number;
+  pointsMultiplier: number;
+  autoTapsPerMin: number;
+  boosterLevels: BoosterLevels;
+  boosterNextPrices: BoosterNextPrices;
+}
+
+export function getEffectiveBoosterStats(user: UserRow): EffectiveBoosterStats {
+  const levels: BoosterLevels = {
+    points: user.pointsBoosterLevel,
+    energy_max: user.energyMaxBoosterLevel,
+    energy_regen: user.energyRegenBoosterLevel,
+    auto_taps: user.autoTapsBoosterLevel,
+  };
+  const energyMax =
+    tapConfig.ENERGY_MAX + levels.energy_max * BOOSTER_EFFECTS.ENERGY_MAX_PER_LEVEL;
+  const energyRegenPerMin =
+    tapConfig.ENERGY_REGEN_PER_MIN +
+    levels.energy_regen * BOOSTER_EFFECTS.ENERGY_REGEN_PER_LEVEL;
+  const pointsMultiplier =
+    1 + levels.points * BOOSTER_EFFECTS.POINTS_EFFECT_PER_LEVEL;
+  const autoTapsPerMin = levels.auto_taps * BOOSTER_EFFECTS.AUTO_TAPS_PER_LEVEL;
+  const boosterNextPrices: BoosterNextPrices = {
+    points: getBoosterNextPrice(BOOSTER_BASE_PRICES.POINTS, levels.points),
+    energy_max: getBoosterNextPrice(BOOSTER_BASE_PRICES.ENERGY_MAX, levels.energy_max),
+    energy_regen: getBoosterNextPrice(BOOSTER_BASE_PRICES.ENERGY_REGEN, levels.energy_regen),
+    auto_taps: getBoosterNextPrice(BOOSTER_BASE_PRICES.AUTO_TAPS, levels.auto_taps),
+  };
+  return {
+    energyMax,
+    energyRegenPerMin,
+    pointsMultiplier,
+    autoTapsPerMin,
+    boosterLevels: levels,
+    boosterNextPrices,
+  };
+}
+
 /**
- * Commit taps: validate session, apply server-time cap, persist in transaction.
+ * Compute current energy after regen since last_energy_at (or createdAt if never set).
+ * Uses effective energyMax and energyRegenPerMin (from boosters).
+ */
+function currentEnergyAfterRegen(
+  energy: number,
+  lastEnergyAt: Date | null,
+  createdAt: Date,
+  serverNow: Date,
+  energyMax: number,
+  energyRegenPerMin: number
+): number {
+  const from = lastEnergyAt ?? createdAt;
+  const elapsedMs = serverNow.getTime() - from.getTime();
+  const elapsedMinutes = elapsedMs / 60_000;
+  const regen = Math.floor(elapsedMinutes * energyRegenPerMin);
+  const added = Math.min(energyMax - energy, regen);
+  return Math.min(energyMax, energy + added);
+}
+
+/**
+ * Commit taps: validate session, apply energy cap (1 tap = 1 energy), persist in transaction.
  */
 export async function commitTaps(
   body: TapCommitRequest,
@@ -45,7 +119,6 @@ export async function commitTaps(
 
   const requested = Math.max(0, Math.floor(body.taps_delta));
   const serverNow = new Date();
-  const { BASE_MAX_TPS, MIN_DELTA_T_SEC, FIRST_COMMIT_CAP } = tapConfig;
 
   return await db.transaction(async (tx) => {
     const currentUser = await getUserById(user.id, tx);
@@ -68,48 +141,25 @@ export async function commitTaps(
       };
     }
 
-    let maxAllowed: number;
-    let deltaTSeconds = 0;
-
-    if (currentUser.lastCommitAt == null) {
-      maxAllowed = FIRST_COMMIT_CAP;
-    } else {
-      deltaTSeconds =
-        (serverNow.getTime() - currentUser.lastCommitAt.getTime()) / 1000;
-      if (deltaTSeconds < MIN_DELTA_T_SEC) {
-        return {
-          ok: false,
-          resync_required: false,
-          session_id: body.session_id,
-          last_seq: currentUser.lastSeq,
-          balance: currentUser.balance,
-          server_time: serverNow.getTime(),
-        };
-      }
-      maxAllowed = Math.floor(BASE_MAX_TPS * deltaTSeconds);
-    }
-
-    const effective = Math.min(requested, maxAllowed);
-    const ratio = maxAllowed > 0 ? requested / maxAllowed : 0;
-    const abuseLevel = getAbuseLevel(ratio);
-
-    handleAbuse({
-      userId: user.id,
-      sessionId: body.session_id,
-      fid: auth.fid,
-      requested,
-      applied: effective,
-      maxAllowed,
-      ratio,
-      seq: body.seq,
-      deltaTSeconds,
-    });
-
-    const newBalance = currentUser.balance + effective;
+    const stats = getEffectiveBoosterStats(currentUser);
+    const currentEnergy = currentEnergyAfterRegen(
+      currentUser.energy,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.energyMax,
+      stats.energyRegenPerMin
+    );
+    const effective = Math.min(requested, currentEnergy);
+    const balanceDelta = Math.floor(effective * stats.pointsMultiplier);
+    const newEnergy = currentEnergy - effective;
+    const newBalance = currentUser.balance + balanceDelta;
 
     await updateUserAfterCommit(
       user.id,
-      effective,
+      balanceDelta,
+      newEnergy,
+      serverNow,
       serverNow,
       body.seq,
       tx
@@ -121,9 +171,9 @@ export async function commitTaps(
         seq: body.seq,
         requestedTaps: requested,
         appliedTaps: effective,
-        maxAllowed,
-        ratio: ratio.toFixed(4),
-        abuseLevel: abuseLevel !== "none" ? abuseLevel : null,
+        maxAllowed: effective,
+        ratio: null,
+        abuseLevel: null,
         serverTime: serverNow,
         clientDurationMs: body.duration_ms ?? null,
       },
@@ -136,6 +186,13 @@ export async function commitTaps(
       server_seq: body.seq,
       applied_taps: effective,
       balance: newBalance,
+      energy: newEnergy,
+      energy_max: stats.energyMax,
+      energy_regen_per_min: stats.energyRegenPerMin,
+      points_multiplier: stats.pointsMultiplier,
+      auto_taps_per_min: stats.autoTapsPerMin,
+      booster_levels: stats.boosterLevels,
+      booster_next_prices: stats.boosterNextPrices,
       server_time: serverNow.getTime(),
       resync_required: false,
       session_id: body.session_id,
@@ -148,6 +205,13 @@ export interface StartSessionResult {
   session_id: string;
   balance: number;
   last_seq: number;
+  energy: number;
+  energy_max: number;
+  energy_regen_per_min: number;
+  points_multiplier?: number;
+  auto_taps_per_min?: number;
+  booster_levels?: BoosterLevels;
+  booster_next_prices?: BoosterNextPrices;
 }
 
 /**
@@ -159,15 +223,32 @@ export async function startSession(
 ): Promise<StartSessionResult> {
   const user = await getOrCreateUserByFid(auth.fid);
   const session = await createSession(user.id, deviceFingerprint);
+  const serverNow = new Date();
+  const stats = getEffectiveBoosterStats(user);
+  const energy = currentEnergyAfterRegen(
+    user.energy,
+    user.lastEnergyAt,
+    user.createdAt,
+    serverNow,
+    stats.energyMax,
+    stats.energyRegenPerMin
+  );
   return {
     session_id: session.id,
     balance: user.balance,
     last_seq: user.lastSeq,
+    energy,
+    energy_max: stats.energyMax,
+    energy_regen_per_min: stats.energyRegenPerMin,
+    points_multiplier: stats.pointsMultiplier,
+    auto_taps_per_min: stats.autoTapsPerMin,
+    booster_levels: stats.boosterLevels,
+    booster_next_prices: stats.boosterNextPrices,
   };
 }
 
 /**
- * Return full state for the authenticated user (balance, last_seq, session_id).
+ * Return full state for the authenticated user (balance, energy, last_seq, session_id).
  */
 export async function getFullState(
   auth: AuthUserForTap
@@ -176,11 +257,81 @@ export async function getFullState(
   if (!user) return null;
 
   const session = await getLatestSessionByUserId(user.id);
+  const serverNow = new Date();
+  const stats = getEffectiveBoosterStats(user);
+  const energy = currentEnergyAfterRegen(
+    user.energy,
+    user.lastEnergyAt,
+    user.createdAt,
+    serverNow,
+    stats.energyMax,
+    stats.energyRegenPerMin
+  );
 
   return {
     balance: user.balance,
     last_seq: user.lastSeq,
     session_id: session?.id ?? "",
-    server_time: Date.now(),
+    energy,
+    energy_max: stats.energyMax,
+    energy_regen_per_min: stats.energyRegenPerMin,
+    points_multiplier: stats.pointsMultiplier,
+    auto_taps_per_min: stats.autoTapsPerMin,
+    booster_levels: stats.boosterLevels,
+    booster_next_prices: stats.boosterNextPrices,
+    server_time: serverNow.getTime(),
   };
+}
+
+/**
+ * Dev-only: set user energy to max. Call only when ALLOW_DEV_ENERGY_RESTORE or NODE_ENV is development.
+ */
+export async function restoreEnergy(auth: AuthUserForTap): Promise<{ energy: number } | null> {
+  const user = await getUserByFid(auth.fid);
+  if (!user) return null;
+  const stats = getEffectiveBoosterStats(user);
+  await setUserEnergy(user.id, stats.energyMax, new Date());
+  return { energy: stats.energyMax };
+}
+
+export type PurchaseBoosterResult =
+  | { ok: true; balance: number; booster_levels: BoosterLevels }
+  | { ok: false; reason: "user_not_found" | "insufficient_balance" };
+
+/**
+ * Purchase one level of a booster by deducting balance. Returns new balance and levels on success.
+ */
+export async function purchaseBooster(
+  auth: AuthUserForTap,
+  boosterType: BoosterTypeKey
+): Promise<PurchaseBoosterResult> {
+  const user = await getUserByFid(auth.fid);
+  if (!user) return { ok: false, reason: "user_not_found" };
+
+  const levels = {
+    points: user.pointsBoosterLevel,
+    energy_max: user.energyMaxBoosterLevel,
+    energy_regen: user.energyRegenBoosterLevel,
+    auto_taps: user.autoTapsBoosterLevel,
+  };
+  const basePrices = {
+    points: BOOSTER_BASE_PRICES.POINTS,
+    energy_max: BOOSTER_BASE_PRICES.ENERGY_MAX,
+    energy_regen: BOOSTER_BASE_PRICES.ENERGY_REGEN,
+    auto_taps: BOOSTER_BASE_PRICES.AUTO_TAPS,
+  };
+  const price = getBoosterNextPrice(basePrices[boosterType], levels[boosterType]);
+
+  if (user.balance < price) return { ok: false, reason: "insufficient_balance" };
+
+  const updated = await purchaseBoosterLevel(user.id, boosterType, price);
+  if (!updated) return { ok: false, reason: "insufficient_balance" };
+
+  const newLevels: BoosterLevels = {
+    points: updated.pointsBoosterLevel,
+    energy_max: updated.energyMaxBoosterLevel,
+    energy_regen: updated.energyRegenBoosterLevel,
+    auto_taps: updated.autoTapsBoosterLevel,
+  };
+  return { ok: true, balance: updated.balance, booster_levels: newLevels };
 }

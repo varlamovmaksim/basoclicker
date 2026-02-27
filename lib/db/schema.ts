@@ -1,6 +1,7 @@
 import {
   bigint,
   decimal,
+  integer,
   pgEnum,
   pgTable,
   serial,
@@ -20,9 +21,15 @@ export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   fid: varchar("fid", { length: 64 }).notNull().unique(),
   balance: bigint("balance", { mode: "number" }).notNull().default(0),
+  energy: bigint("energy", { mode: "number" }).notNull().default(1000),
+  lastEnergyAt: timestamp("last_energy_at", { withTimezone: true }),
   lastCommitAt: timestamp("last_commit_at", { withTimezone: true }),
   lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
   avgTps: bigint("avg_tps", { mode: "number" }),
+  pointsBoosterLevel: integer("points_booster_level").notNull().default(0),
+  energyMaxBoosterLevel: integer("energy_max_booster_level").notNull().default(0),
+  energyRegenBoosterLevel: integer("energy_regen_booster_level").notNull().default(0),
+  autoTapsBoosterLevel: integer("auto_taps_booster_level").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

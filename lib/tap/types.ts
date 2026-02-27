@@ -20,8 +20,15 @@ export interface TapCommitResponse {
   server_seq?: number;
   applied_taps?: number;
   balance?: number;
+  energy?: number;
+  energy_max?: number;
+  energy_regen_per_min?: number;
   server_time?: number;
   resync_required?: boolean;
+  points_multiplier?: number;
+  auto_taps_per_min?: number;
+  booster_levels?: BoosterLevels;
+  booster_next_prices?: BoosterNextPrices;
   /** Full state for resync without GET /api/v1/tap/state */
   session_id?: string;
   last_seq?: number;
@@ -32,7 +39,28 @@ export interface TapStateResponse {
   balance: number;
   last_seq: number;
   session_id: string;
+  energy: number;
+  energy_max: number;
+  energy_regen_per_min: number;
   server_time?: number;
+  points_multiplier?: number;
+  auto_taps_per_min?: number;
+  booster_levels?: BoosterLevels;
+  booster_next_prices?: BoosterNextPrices;
+}
+
+export interface BoosterLevels {
+  points: number;
+  energy_max: number;
+  energy_regen: number;
+  auto_taps: number;
+}
+
+export interface BoosterNextPrices {
+  points: number;
+  energy_max: number;
+  energy_regen: number;
+  auto_taps: number;
 }
 
 /** Client-side game state (batched, optimistic) */

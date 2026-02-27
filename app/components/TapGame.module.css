@@ -34,6 +34,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+.energySection {
+  width: 100%;
+  max-width: min(280px, 80vw);
+  margin-bottom: 1.5rem;
+}
+
+.energyLabel {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.energyBarTrack {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.energyBarFill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #81c784 0%, #66bb6a 100%);
+  transition: width 0.2s ease-out;
+}
+
 .tapTarget {
   width: min(280px, 80vw);
   height: min(280px, 80vw);

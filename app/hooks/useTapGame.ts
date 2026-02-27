@@ -66,6 +66,20 @@ function getApiBase(): string {
   return window.location.origin;
 }
 
+export interface BoosterLevels {
+  points: number;
+  energy_max: number;
+  energy_regen: number;
+  auto_taps: number;
+}
+
+export interface BoosterNextPrices {
+  points: number;
+  energy_max: number;
+  energy_regen: number;
+  auto_taps: number;
+}
+
 export interface TapGameState {
   /** Last known server-confirmed balance (never incremented on tap). */
   serverBalance: number;
@@ -74,6 +88,16 @@ export interface TapGameState {
   lastServerSeq: number;
   lastCommitTime: number;
   sessionId: string | null;
+  /** Last known energy from server (as of energyServerTime). */
+  energy: number;
+  energyMax: number;
+  energyRegenPerMin: number;
+  /** Timestamp when energy was last set by server (ms). */
+  energyServerTime: number;
+  pointsMultiplier: number;
+  autoTapsPerMin: number;
+  boosterLevels: BoosterLevels | null;
+  boosterNextPrices: BoosterNextPrices | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -98,8 +122,12 @@ export interface UseTapGameReturn {
   handleTap: () => void;
   /** Display score: serverBalance + localTapDelta (smooth, no jumps). */
   score: number;
+  /** Display energy: consumed on tap (server energy + regen − localTapDelta), capped to [0, energyMax]. */
+  displayEnergy: number;
   /** Only present when NEXT_PUBLIC_IS_DEV === "true". */
   debug?: TapGameDebug;
+  /** Refetch state from server (e.g. after restore energy or booster purchase). */
+  refreshState: () => Promise<void>;
 }
 
 function getInitialStoredState(): StoredTapState | null {
@@ -114,6 +142,15 @@ export function useTapGame(): UseTapGameReturn {
   const [lastServerSeq, setLastServerSeq] = useState(stored?.lastServerSeq ?? 0);
   const [lastCommitTime, setLastCommitTime] = useState(stored?.lastCommitTime ?? 0);
   const [sessionId, setSessionId] = useState<string | null>(stored?.sessionId ?? null);
+  const [energy, setEnergy] = useState(1000);
+  const [energyMax, setEnergyMax] = useState(1000);
+  const [energyRegenPerMin, setEnergyRegenPerMin] = useState(1);
+  const [energyServerTime, setEnergyServerTime] = useState(0);
+  const [pointsMultiplier, setPointsMultiplier] = useState(1);
+  const [autoTapsPerMin, setAutoTapsPerMin] = useState(0);
+  const [boosterLevels, setBoosterLevels] = useState<BoosterLevels | null>(null);
+  const [boosterNextPrices, setBoosterNextPrices] = useState<BoosterNextPrices | null>(null);
+  const [, setTick] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const seqRef = useRef(0);
@@ -135,6 +172,20 @@ export function useTapGame(): UseTapGameReturn {
     serverBalance: 0,
   });
   stateRef.current = { localTapDelta, lastCommitTime, serverBalance };
+
+  /** For handleTap: energy available = server energy + regen (no localTapDelta). Updated each render. */
+  const energyRef = useRef({
+    energy: 1000,
+    energyMax: 1000,
+    energyRegenPerMin: 1,
+    energyServerTime: 0,
+  });
+  energyRef.current = {
+    energy,
+    energyMax,
+    energyRegenPerMin,
+    energyServerTime,
+  };
 
   const getToken = useCallback(async (): Promise<string | null> => {
     if (IS_DEV) return "dev";
@@ -172,10 +223,25 @@ export function useTapGame(): UseTapGameReturn {
       session_id: string;
       balance: number;
       last_seq: number;
+      energy?: number;
+      energy_max?: number;
+      energy_regen_per_min?: number;
+      points_multiplier?: number;
+      auto_taps_per_min?: number;
+      booster_levels?: BoosterLevels;
+      booster_next_prices?: BoosterNextPrices;
     };
     setSessionId(data.session_id);
     setServerBalance(data.balance);
     setLastServerSeq(data.last_seq);
+    if (typeof data.energy === "number") setEnergy(data.energy);
+    if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
+    if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+    if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
+    if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
+    if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
+    if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
+    setEnergyServerTime(Date.now());
     seqRef.current = data.last_seq;
     const stored = getStoredState();
     if (stored?.sessionId === data.session_id && stored.localTapDelta > 0) {
@@ -203,12 +269,28 @@ export function useTapGame(): UseTapGameReturn {
       balance: number;
       last_seq: number;
       session_id: string;
+      energy?: number;
+      energy_max?: number;
+      energy_regen_per_min?: number;
+      server_time?: number;
+      points_multiplier?: number;
+      auto_taps_per_min?: number;
+      booster_levels?: BoosterLevels;
+      booster_next_prices?: BoosterNextPrices;
     };
     setServerBalance(data.balance);
     setLastServerSeq(data.last_seq);
     setSessionId(data.session_id || null);
     setLocalTapDelta(0);
     setLastCommitTime(Date.now());
+    if (typeof data.energy === "number") setEnergy(data.energy);
+    if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
+    if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+    if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
+    if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
+    if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
+    if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
+    if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
     seqRef.current = data.last_seq;
   }, [getToken]);
 
@@ -289,6 +371,13 @@ export function useTapGame(): UseTapGameReturn {
           resync_required?: boolean;
           applied_taps?: number;
           balance?: number;
+          energy?: number;
+          energy_max?: number;
+          energy_regen_per_min?: number;
+          points_multiplier?: number;
+          auto_taps_per_min?: number;
+          booster_levels?: BoosterLevels;
+          booster_next_prices?: BoosterNextPrices;
           server_time?: number;
           session_id?: string;
           last_seq?: number;
@@ -343,6 +432,14 @@ export function useTapGame(): UseTapGameReturn {
         const remainingAfterApply = localBefore - applied;
         pendingLocalTapDeltaAfterCommitRef.current = remainingAfterApply;
         if (data.balance != null) setServerBalance(data.balance);
+        if (typeof data.energy === "number") setEnergy(data.energy);
+        if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
+        if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+        if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
+        if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
+        if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
+        if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
+        if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
         setLocalTapDelta((d) => d - applied);
         setLastServerSeq(seq);
         if (data.session_id != null) setSessionId(data.session_id);
@@ -398,6 +495,17 @@ export function useTapGame(): UseTapGameReturn {
   );
 
   const handleTap = useCallback(() => {
+    const { energy: e, energyMax: max, energyRegenPerMin: regenPerMin, energyServerTime: t0 } =
+      energyRef.current;
+    const now = Date.now();
+    const elapsedMinutes = (now - t0) / 60_000;
+    const regen = Math.floor(elapsedMinutes * regenPerMin);
+    const effective = Math.min(max, e + regen);
+    const available = effective - stateRef.current.localTapDelta;
+    if (available <= 0) {
+      logTap("handleTap skipped (no energy)", { available, effective });
+      return;
+    }
     logTap("handleTap");
     setLocalTapDelta((d) => {
       const next = d + 1;
@@ -496,6 +604,50 @@ export function useTapGame(): UseTapGameReturn {
     };
   }, [fetchSession]);
 
+  // Tick every second so displayEnergy (and energy bar) updates in near real time
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Auto-tap: when autoTapsPerMin > 0, fire handleTap at that rate (min interval 1s to avoid runaway)
+  const handleTapRef = useRef(handleTap);
+  handleTapRef.current = handleTap;
+  useEffect(() => {
+    if (autoTapsPerMin <= 0) return;
+    const intervalMs = Math.max(1000, Math.floor(60_000 / autoTapsPerMin));
+    const id = setInterval(() => {
+      handleTapRef.current();
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [autoTapsPerMin]);
+
+
+  // Refetch state from backend at next regen boundary so energy value is renewed from server
+  const fetchStateRef = useRef(fetchState);
+  fetchStateRef.current = fetchState;
+  useEffect(() => {
+    if (!sessionId || energyServerTime <= 0 || energyRegenPerMin <= 0) return;
+    const msPerEnergy = 60_000 / energyRegenPerMin;
+    const elapsed = Date.now() - energyServerTime;
+    const nextBoundaryElapsed = (Math.floor(elapsed / msPerEnergy) + 1) * msPerEnergy;
+    const delay = nextBoundaryElapsed - elapsed;
+    const timeout = setTimeout(() => {
+      fetchStateRef.current();
+    }, Math.max(0, delay));
+    return () => clearTimeout(timeout);
+  }, [sessionId, energyServerTime, energyRegenPerMin]);
+
+  const now = Date.now();
+  const elapsedMinutes = (now - energyServerTime) / 60_000;
+  const regen = Math.floor(elapsedMinutes * energyRegenPerMin);
+  const effectiveEnergy = Math.min(energyMax, energy + regen);
+  const displayEnergy = Math.max(0, effectiveEnergy - localTapDelta);
+
+  const refreshState = useCallback(async () => {
+    await fetchState();
+  }, [fetchState]);
+
   return {
     state: {
       serverBalance,
@@ -503,11 +655,21 @@ export function useTapGame(): UseTapGameReturn {
       lastServerSeq,
       lastCommitTime,
       sessionId,
+      energy,
+      energyMax,
+      energyRegenPerMin,
+      energyServerTime,
+      pointsMultiplier,
+      autoTapsPerMin,
+      boosterLevels,
+      boosterNextPrices,
       isLoading,
       error,
     },
     handleTap,
     score: serverBalance + localTapDelta,
+    displayEnergy,
+    refreshState,
     ...(IS_DEV && {
       debug: {
         commitInFlight: debugCommitInFlight,
