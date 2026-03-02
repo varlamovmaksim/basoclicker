@@ -6,6 +6,8 @@
   :root {
     --background: #ffffff;
     --foreground: #171717;
+    --blue: #1e63ff;
+    --blue2: #0b3dcc;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -72,11 +74,11 @@
 
 @layer components {
   .baso-wrap {
-    @apply flex min-h-screen min-h-dvh w-full justify-center bg-white px-4 py-4;
+    @apply flex min-h-screen min-h-dvh w-full bg-white;
   }
 
   .baso-phone {
-    @apply relative flex w-full max-w-md flex-col overflow-hidden bg-white;
+    @apply relative flex w-full flex-1 flex-col overflow-hidden bg-white px-4 py-4;
   }
 
   .stageSkinWhite {
@@ -109,11 +111,15 @@
   .pop {
     position: absolute;
     transform: translate(-50%, -50%);
+    font-size: 2rem;
     font-weight: 900;
-    color: #0b3dcc;
+    color: #fff;
     pointer-events: none;
     animation: pop 240ms ease-out forwards;
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85);
+    -webkit-text-stroke: 2px var(--blue2);
+    text-shadow:
+      0 0 2px var(--blue2),
+      0 2px 10px rgba(30, 99, 255, 0.25);
   }
 
   .eat0 .basoBody {

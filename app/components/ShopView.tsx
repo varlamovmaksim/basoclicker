@@ -4,7 +4,6 @@ import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import type { TapGameState } from "../hooks/useTapGame";
 import { Card } from "./shared/Card";
-import { PrimaryBtn } from "./shared/PrimaryBtn";
 import { formatCompact } from "../../lib/baso/utils";
 import { SKINS } from "../../lib/baso/constants";
 
@@ -22,41 +21,123 @@ const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
 type BoosterType = "points" | "energy_max" | "energy_regen" | "auto_taps";
 
+type BoostCategory = "tap" | "auto" | "energy";
+
 const BOOSTER_CONFIG: Array<{
   key: BoosterType;
+  category: BoostCategory;
   title: string;
-  desc: string;
+  icon: string;
   effectLabel: (level: number) => string;
+  unit: string;
 }> = [
   {
     key: "points",
+    category: "tap",
     title: "Bigger Bite",
-    desc: "Increase points per tap.",
+    icon: "👆",
     effectLabel: (l) => `${(1 + l * 0.25).toFixed(2)}x`,
-  },
-  {
-    key: "energy_max",
-    title: "Bigger Stomach",
-    desc: "Increase max energy (+100).",
-    effectLabel: (l) => `+${l * 100}`,
-  },
-  {
-    key: "energy_regen",
-    title: "Faster Recharge",
-    desc: "Energy regenerates faster.",
-    effectLabel: (l) => `+${(l * 0.5).toFixed(1)}/min`,
+    unit: "/tap",
   },
   {
     key: "auto_taps",
+    category: "auto",
     title: "Agent Upgrade",
-    desc: "Increase auto taps.",
-    effectLabel: (l) => `${l * 5}/min`,
+    icon: "⏱️",
+    effectLabel: (l) => `${((l * 5) / 60).toFixed(1).replace(/\.0$/, "")}`,
+    unit: "/sec",
+  },
+  {
+    key: "energy_max",
+    category: "energy",
+    title: "Bigger Stomach",
+    icon: "⚡",
+    effectLabel: (l) => `+${l * 100}`,
+    unit: "",
+  },
+  {
+    key: "energy_regen",
+    category: "energy",
+    title: "Faster Recharge",
+    icon: "⚡",
+    effectLabel: (l) => `+${(l * 0.5).toFixed(1)}/min`,
+    unit: "",
   },
 ];
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "";
   return window.location.origin;
+}
+
+function BoosterRow({
+  cfg,
+  level,
+  price,
+  score,
+  canBuy,
+  busy,
+  onPurchase,
+}: {
+  cfg: (typeof BOOSTER_CONFIG)[number];
+  level: number;
+  price: number;
+  score: number;
+  canBuy: boolean;
+  busy: boolean;
+  onPurchase: (key: BoosterType) => void;
+}): React.ReactElement {
+  const valueStr = cfg.effectLabel(level) + (cfg.unit ? ` ${cfg.unit}` : "");
+  const dimmed = !canBuy || busy;
+
+  return (
+    <button
+      type="button"
+      className={`relative flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition-opacity ${
+        dimmed ? "opacity-80" : ""
+      } ${canBuy && !busy ? "cursor-pointer" : "cursor-default"}`}
+      onClick={(e) => {
+        e.preventDefault();
+        if (!canBuy || busy) return;
+        onPurchase(cfg.key);
+      }}
+      disabled={!canBuy || busy}
+      aria-label={`${cfg.title}, ${level} lvl, ${formatCompact(price)} donuts`}
+    >
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--blue)]/20 bg-[var(--blue)]/10 text-lg"
+        aria-hidden
+      >
+        {cfg.icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-black text-slate-900">{cfg.title}</div>
+        <div className="mt-0.5 text-xs font-extrabold text-slate-500">
+          {level} lvl{valueStr ? ` | ${valueStr}` : ""}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className={`text-sm font-black ${dimmed ? "text-slate-400" : "text-slate-900"}`}
+        >
+          🍩 {formatCompact(price)}
+        </span>
+        <span className="text-slate-400 font-black text-base leading-none" aria-hidden>
+          ›
+        </span>
+      </div>
+      {!canBuy && (
+        <div
+          className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/85 backdrop-blur-[2px]"
+          aria-hidden
+        >
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm">
+            🔒
+          </span>
+        </div>
+      )}
+    </button>
+  );
 }
 
 export function ShopView({
@@ -68,6 +149,7 @@ export function ShopView({
   skinStageClass,
   setSkin,
 }: ShopViewProps): React.ReactElement {
+  const [boostCategory, setBoostCategory] = useState<BoostCategory>("tap");
   const [purchasing, setPurchasing] = useState<BoosterType | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -110,12 +192,12 @@ export function ShopView({
   );
 
   if (state.isLoading) {
-    return <div className="text-xs font-semibold text-slate-500">Loading…</div>;
+    return <div className="text-xs font-extrabold text-slate-500">Loading…</div>;
   }
 
   if (state.error) {
     return (
-      <div className="text-xs font-semibold text-red-600">{state.error}</div>
+      <div className="text-xs font-extrabold text-red-600">{state.error}</div>
     );
   }
 
@@ -132,14 +214,19 @@ export function ShopView({
     auto_taps: 250,
   };
 
+  const boostersByCategory = BOOSTER_CONFIG.filter(
+    (c) => c.category === boostCategory
+  );
+
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white/80 p-1 text-xs font-black">
+      {/* Segmented: Boost | Customize */}
+      <div className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white/80 p-1">
         <button
           type="button"
-          className={`rounded-xl px-3 py-2 ${
+          className={`rounded-xl px-3 py-2.5 text-sm font-black ${
             shopTab === "earn"
-              ? "border border-blue-300 bg-blue-50 text-blue-700"
+              ? "border border-[var(--blue)]/30 bg-[var(--blue)]/10 text-[var(--blue2)]"
               : "text-slate-500"
           }`}
           onClick={(e) => {
@@ -147,13 +234,13 @@ export function ShopView({
             setShopTab("earn");
           }}
         >
-          Earn
+          Boost
         </button>
         <button
           type="button"
-          className={`rounded-xl px-3 py-2 ${
+          className={`rounded-xl px-3 py-2.5 text-sm font-black ${
             shopTab === "custom"
-              ? "border border-blue-300 bg-blue-50 text-blue-700"
+              ? "border border-[var(--blue)]/30 bg-[var(--blue)]/10 text-[var(--blue2)]"
               : "text-slate-500"
           }`}
           onClick={(e) => {
@@ -167,99 +254,126 @@ export function ShopView({
 
       {shopTab === "earn" && (
         <>
-          <Card>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-black text-slate-900">Upgrades</div>
-                <div className="text-xs font-semibold text-slate-500">
-                  Boost your earnings (🍩).
-                </div>
-              </div>
-              <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-black text-slate-900">
-                🍩 {formatCompact(score)}
-              </div>
+          <div className="flex justify-center py-1">
+            <div className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-lg font-black text-slate-900 shadow-sm">
+              🍩 {formatCompact(score)}
             </div>
-          </Card>
+          </div>
+
+          <div
+            className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white/80 p-1"
+            role="tablist"
+            aria-label="Boost categories"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={boostCategory === "tap"}
+              className={`rounded-lg px-2 py-2 text-xs font-black ${
+                boostCategory === "tap"
+                  ? "border border-[var(--blue)]/25 bg-[var(--blue)]/10 text-[var(--blue2)]"
+                  : "text-slate-500"
+              }`}
+              onClick={(e) => {
+                e.preventDefault();
+                setBoostCategory("tap");
+              }}
+            >
+              👆 Tap
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={boostCategory === "auto"}
+              className={`rounded-lg px-2 py-2 text-xs font-black ${
+                boostCategory === "auto"
+                  ? "border border-[var(--blue)]/25 bg-[var(--blue)]/10 text-[var(--blue2)]"
+                  : "text-slate-500"
+              }`}
+              onClick={(e) => {
+                e.preventDefault();
+                setBoostCategory("auto");
+              }}
+            >
+              ⏱️ Auto
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={boostCategory === "energy"}
+              className={`rounded-lg px-2 py-2 text-xs font-black ${
+                boostCategory === "energy"
+                  ? "border border-[var(--blue)]/25 bg-[var(--blue)]/10 text-[var(--blue2)]"
+                  : "text-slate-500"
+              }`}
+              onClick={(e) => {
+                e.preventDefault();
+                setBoostCategory("energy");
+              }}
+            >
+              ⚡ Energy
+            </button>
+          </div>
 
           {message && (
-            <div className="text-xs font-semibold text-red-600">{message}</div>
+            <div className="text-xs font-extrabold text-red-600">{message}</div>
           )}
 
-          {BOOSTER_CONFIG.map((cfg) => {
-            const level = levels[cfg.key];
-            const price = prices[cfg.key];
-            const canBuy = score >= price;
-            const busy = purchasing === cfg.key;
-            return (
-              <Card key={cfg.key}>
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-black text-slate-900">
-                      {cfg.title}
-                    </div>
-                    <div className="text-xs font-semibold text-slate-500">
-                      {cfg.desc}
-                    </div>
-                  </div>
-                  <div className="rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-xs font-black text-slate-900">
-                    🍩 {formatCompact(price)}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-xs text-slate-600">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">Level {level}</span>
-                    <span className="text-slate-400">·</span>
-                    <span>Effect {cfg.effectLabel(level)}</span>
-                  </div>
-                </div>
-                <PrimaryBtn
-                  onClick={() => void handlePurchase(cfg.key)}
-                  disabled={!canBuy || busy}
-                  className="mt-2"
-                >
-                  {busy ? "Processing…" : "Buy"}
-                </PrimaryBtn>
-              </Card>
-            );
-          })}
+          <div className="flex flex-col gap-2" role="tabpanel">
+            {boostersByCategory.map((cfg) => (
+              <BoosterRow
+                key={cfg.key}
+                cfg={cfg}
+                level={levels[cfg.key]}
+                price={prices[cfg.key]}
+                score={score}
+                canBuy={score >= prices[cfg.key]}
+                busy={purchasing === cfg.key}
+                onPurchase={(key) => void handlePurchase(key)}
+              />
+            ))}
+          </div>
         </>
       )}
 
       {shopTab === "custom" && (
         <>
           <Card>
-            <div className="text-sm font-black text-slate-900">Skins</div>
-            <div className="mt-1 text-xs font-semibold text-slate-500">
-              Change the tap scene.
+            <div className="font-black text-slate-900">Customization</div>
+            <div className="mt-1 text-sm font-extrabold text-slate-500">
+              More cosmetics coming soon.
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+          </Card>
+
+          <Card>
+            <div className="font-black text-slate-900">Skins</div>
+            <div className="mt-1 text-sm font-extrabold text-slate-500">
+              Choose a scene background.
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
               {SKINS.map((skin) => (
                 <button
                   key={skin.id}
                   type="button"
-                  className={`flex flex-col rounded-2xl border px-2 py-2 text-left text-xs font-semibold ${
+                  className={`flex flex-col rounded-2xl border-2 p-2 text-left ${
                     skinStageClass === skin.stageClass
-                      ? "border-blue-300 bg-blue-50"
+                      ? "border-[var(--blue)] bg-[var(--blue)]/5 outline outline-2 outline-[var(--blue)]/30"
                       : "border-slate-200 bg-white/80"
                   }`}
                   onClick={(e) => {
                     e.preventDefault();
                     setSkin(skin.id);
                   }}
+                  aria-label={`skin-${skin.id}`}
                 >
-                  <div className={`mb-2 h-16 rounded-xl border border-slate-200 ${skin.stageClass}`} />
-                  <div className="text-[11px] font-black text-slate-900">
+                  <div
+                    className={`aspect-square w-full rounded-xl border border-slate-200 ${skin.stageClass}`}
+                  />
+                  <div className="mt-2 truncate text-xs font-black text-slate-900">
                     {skin.name}
                   </div>
                 </button>
               ))}
-            </div>
-          </Card>
-
-          <Card>
-            <div className="text-sm font-black text-slate-900">Customization</div>
-            <div className="mt-1 text-xs font-semibold text-slate-500">
-              More cosmetics coming soon.
             </div>
           </Card>
         </>
@@ -267,4 +381,3 @@ export function ShopView({
     </div>
   );
 }
-

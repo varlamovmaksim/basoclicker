@@ -429,7 +429,9 @@ export function useTapGame(): UseTapGameReturn {
 
         const applied = data.applied_taps ?? anchor?.sentDelta ?? delta;
         const localBefore = stateRef.current.localTapDelta;
-        const remainingAfterApply = localBefore - applied;
+        // Clamp: if stateRef was zeroed while commit was in flight (e.g. by fetchState regen),
+        // avoid negative remaining and negative localTapDelta (would mis-display or double-schedule).
+        const remainingAfterApply = Math.max(0, localBefore - applied);
         pendingLocalTapDeltaAfterCommitRef.current = remainingAfterApply;
         if (data.balance != null) setServerBalance(data.balance);
         if (typeof data.energy === "number") setEnergy(data.energy);
@@ -440,7 +442,7 @@ export function useTapGame(): UseTapGameReturn {
         if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
         if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
         if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
-        setLocalTapDelta((d) => d - applied);
+        setLocalTapDelta((d) => Math.max(0, d - applied));
         setLastServerSeq(seq);
         if (data.session_id != null) setSessionId(data.session_id);
         if (data.last_seq != null) {

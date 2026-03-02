@@ -13,14 +13,14 @@ export function SubPageShell({
 }: SubPageShellProps): React.ReactElement {
   return (
     <div
-      className="absolute inset-0 z-40 flex flex-col bg-white px-4 py-4"
+      className="absolute inset-0 z-40 flex flex-col bg-white"
       role="dialog"
       aria-modal="true"
     >
-      <div className="flex items-center gap-3 border-b border-slate-200 pb-3">
+      <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-500"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50/80 text-xl font-black leading-none text-slate-500 hover:bg-slate-100/80"
           onClick={(e) => {
             e.preventDefault();
             onClose();
@@ -29,9 +29,9 @@ export function SubPageShell({
         >
           ‹
         </button>
-        <div className="text-base font-black text-slate-900">{title}</div>
+        <h2 className="text-lg font-black text-slate-900">{title}</h2>
       </div>
-      <div className="mt-3 flex-1 overflow-auto pb-4">{children}</div>
+      <div className="flex-1 overflow-auto px-4 py-3 pb-6">{children}</div>
     </div>
   );
 }

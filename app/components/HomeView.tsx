@@ -47,11 +47,11 @@ export function HomeView(): React.ReactElement {
               onDonateHalf={() => game.openDonatePreset(0.5)}
             />
 
-            <div className="mt-6 text-center">
-              <div className="flex items-center justify-center gap-3">
+            <div className="mt-5 text-center">
+              <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
-                  className="text-2xl"
+                  className="text-xl leading-none"
                   onClick={(e) => {
                     e.preventDefault();
                     game.openDonate();
@@ -60,26 +60,27 @@ export function HomeView(): React.ReactElement {
                 >
                   🍩
                 </button>
-                <div className="text-[52px] font-black tracking-tight text-slate-900 leading-none">
+                <div className="text-[54px] font-black tracking-tight text-slate-900 leading-none">
                   {formatCompact(game.score)}
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 px-4">
+            <div className="mt-3">
               <div
                 ref={stageRef}
-                className={`relative overflow-hidden rounded-[22px] border border-slate-200 bg-white py-3 flex justify-center ${game.skinStageClass}`}
+                className={`relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[340px] justify-center items-center shadow-sm ${game.skinStageClass}`}
               >
                 <button
                   type="button"
-                  className="border-0 bg-transparent p-0 touch-manipulation"
+                  className="absolute inset-0 w-full h-full border-0 bg-transparent p-0 touch-manipulation cursor-pointer flex items-center justify-center"
                   onPointerDown={(e) => {
                     game.onTap(e);
                     const el = stageRef.current;
                     if (!el) return;
                     const rect = el.getBoundingClientRect();
-                    game.addPop(e.clientX, e.clientY, rect, `+1`);
+                    const tapVal = Math.max(1, Math.floor(game.tapState.pointsMultiplier));
+                    game.addPop(e.clientX, e.clientY, rect, `+${tapVal}`);
                   }}
                   aria-label="tap-baso"
                 >
@@ -93,7 +94,7 @@ export function HomeView(): React.ReactElement {
                 {game.pops.map((p) => (
                   <div
                     key={p.id}
-                    className="pop pointer-events-none text-sky-900 text-sm font-black drop-shadow-sm"
+                    className="pop"
                     style={{ left: p.x, top: p.y }}
                   >
                     {p.text}
@@ -101,7 +102,7 @@ export function HomeView(): React.ReactElement {
                 ))}
 
                 {game.displayEnergy <= 0 && (
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-slate-200 bg-slate-100/80 px-3 py-1 text-xs font-semibold text-slate-700">
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-slate-200 bg-slate-100/90 px-3 py-1.5 text-xs font-extrabold text-slate-700">
                     Out of energy
                   </div>
                 )}
@@ -110,33 +111,45 @@ export function HomeView(): React.ReactElement {
               <Card className="mt-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">⚡</span>
-                    <span className="text-base font-semibold text-slate-900">Energy</span>
+                    <span className="text-lg" aria-hidden>⚡</span>
+                    <span className="font-black text-slate-900">Energy</span>
                   </div>
-                  <div className="text-base font-semibold text-slate-900">
-                    <b>{game.displayEnergy.toLocaleString("en-US")}</b>
-                    <span className="mx-1 text-sm font-semibold text-slate-500">
-                      (+{game.tapState.energyRegenPerMin}/min)
+                  <div className="font-black text-slate-900">
+                    {Math.floor(game.displayEnergy).toLocaleString("en-US")}
+                    <span className="ml-1 font-extrabold text-slate-500">
+                      (+{game.tapState.energyRegenPerMin.toFixed(1)})
                     </span>
-                    / {game.tapState.energyMax.toLocaleString("en-US")}
+                    {" / "}
+                    {game.tapState.energyMax.toLocaleString("en-US")}
                   </div>
                 </div>
                 <ProgressBar pct={clamp(game.displayEnergy / Math.max(1, game.tapState.energyMax), 0, 1)} />
 
                 <div className="mt-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">👤</span>
-                    <span className="text-base font-semibold text-slate-900">Agent</span>
+                    <span aria-hidden>👆</span>
+                    <span className="font-black text-slate-900">Tap</span>
                   </div>
-                  <div className="text-base font-semibold text-slate-900">
-                    +{Math.floor(game.tapState.autoTapsPerMin)}
-                    <span className="ml-1 text-sm font-semibold text-slate-500">/ min</span>
+                  <div className="font-black text-slate-900">
+                    +{Math.max(1, Math.floor(game.tapState.pointsMultiplier))}
+                    <span className="ml-1 font-extrabold text-slate-500">/ tap</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span aria-hidden>⏱️</span>
+                    <span className="font-black text-slate-900">Auto</span>
+                  </div>
+                  <div className="font-black text-slate-900">
+                    +{Math.floor(game.tapState.autoTapsPerMin / 60)}
+                    <span className="ml-1 font-extrabold text-slate-500">/ sec</span>
                   </div>
                 </div>
               </Card>
             </div>
 
-            <div className="mt-3 mb-4 px-4">
+            <div className="mt-3 mb-4">
               <NavRow tab={game.tab} setTab={game.setTab} />
             </div>
           </>

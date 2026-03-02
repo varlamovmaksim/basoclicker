@@ -369,7 +369,6 @@ export function useBasoGame(): UseBasoGameReturn {
     tapState: state,
     debug,
     refreshState,
-    donutColor,
   };
 }
 
