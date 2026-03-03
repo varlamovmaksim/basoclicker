@@ -544,7 +544,8 @@ export function useTapGame(): UseTapGameReturn {
     if (!isLoading && sessionId && localTapDelta > 0) {
       scheduleNextBatchIfNeededRef.current();
     }
-  }, [isLoading]); // intentional: run only when loading finishes, then schedule for current localTapDelta
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run only when loading finishes
+  }, [isLoading]);
 
   // Persist state to localStorage so it survives refresh/close
   useEffect(() => {

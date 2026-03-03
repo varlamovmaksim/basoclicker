@@ -5,7 +5,7 @@ import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
 import { buildLeaderboard } from "../../lib/baso/leaderboard";
-import { clamp, msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
+import { msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
 import { pickNextDonutColor } from "../../lib/baso/donut";
 
 export interface Pop {
@@ -95,8 +95,6 @@ function savePersisted(data: BasoPersisted): void {
   }
 }
 
-const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
-
 export function useBasoGame(): UseBasoGameReturn {
   const { state, handleTap, score, displayEnergy, debug, refreshState } = useTapGame();
 
@@ -106,7 +104,7 @@ export function useBasoGame(): UseBasoGameReturn {
   const persisted = useMemo(() => loadPersisted(), []);
   const [skinId, setSkinId] = useState<string>(persisted?.skinId ?? "white");
   const [lastGMDay, setLastGMDay] = useState<string | null>(persisted?.lastGMDay ?? null);
-  const [referralCode, setReferralCode] = useState<string>(
+  const [referralCode, _setReferralCode] = useState<string>(
     persisted?.referralCode ??
       ("BASO" + (typeof window !== "undefined" ? Math.random().toString(36).slice(2, 7).toUpperCase() : "XXXXX"))
   );
