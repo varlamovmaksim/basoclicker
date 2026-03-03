@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import type { TapGameDebug, TapGameState } from "../hooks/useTapGame";
-import { DevTapPanel } from "./DevTapPanel";
 
 export interface DevViewProps {
   state: TapGameState;
@@ -22,8 +21,8 @@ const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
 export function DevView({
   state,
-  score,
-  displayEnergy,
+  score: _score,
+  displayEnergy: _displayEnergy,
   debug,
   refreshState,
 }: DevViewProps): React.ReactElement {
@@ -48,34 +47,29 @@ export function DevView({
     }
   }, [refreshState]);
 
-  const setBoosterLevel = useCallback(
-    async (key: "points" | "energy_max" | "energy_regen" | "auto_taps", delta: number) => {
-      const levels = state.boosterLevels;
-      const current = levels?.[key] ?? 0;
-      const nextLevel = Math.max(0, current + delta);
-      setBoosterUpdating(key);
+  const setBoosterCount = useCallback(
+    async (boosterId: string, delta: number) => {
+      const booster = state.boosters?.find((b) => b.id === boosterId);
+      const current = booster?.count ?? 0;
+      const nextCount = Math.max(0, current + delta);
+      setBoosterUpdating(boosterId);
       try {
         const token = IS_DEV ? "dev" : (await sdk.quickAuth.getToken()).token ?? null;
         if (!token) return;
-        const body: Record<string, number> = {};
-        if (key === "points") body.points_booster_level = nextLevel;
-        else if (key === "energy_max") body.energy_max_booster_level = nextLevel;
-        else if (key === "energy_regen") body.energy_regen_booster_level = nextLevel;
-        else body.auto_taps_booster_level = nextLevel;
         const res = await fetch(`${getApiBase()}/api/dev/boosters`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ booster_id: boosterId, count: nextCount }),
         });
         if (res.ok) await refreshState();
       } finally {
         setBoosterUpdating(null);
       }
     },
-    [state.boosterLevels, refreshState]
+    [state.boosters, refreshState]
   );
 
   if (!debug) {
@@ -106,24 +100,23 @@ export function DevView({
 
         <div className="mt-2 space-y-1">
           <div className="text-[11px] font-bold text-slate-500">Boosters</div>
-          {(["points", "energy_max", "energy_regen", "auto_taps"] as const).map((key) => {
-            const level = state.boosterLevels?.[key] ?? 0;
-            const updating = boosterUpdating === key;
+          {(state.boosters ?? []).map((b) => {
+            const updating = boosterUpdating === b.id;
             return (
-              <div key={key} className="flex items-center justify-between gap-2">
+              <div key={b.id} className="flex items-center justify-between gap-2">
                 <span className="font-mono text-[11px] text-slate-600">
-                  {key} lv {level}
+                  {b.name} lv {b.count}
                 </span>
                 <button
                   type="button"
                   className="rounded-xl border border-blue-300 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800 disabled:opacity-50"
                   onClick={(e) => {
                     e.preventDefault();
-                    void setBoosterLevel(key, 1);
+                    void setBoosterCount(b.id, 1);
                   }}
                   disabled={updating}
                 >
-                  {updating ? "…" : "+1 level"}
+                  {updating ? "…" : "+1"}
                 </button>
               </div>
             );

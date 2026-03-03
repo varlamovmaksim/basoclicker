@@ -2,23 +2,23 @@
 
 import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
-import type { TapGameState } from "../hooks/useTapGame";
+import type { BoosterListItem, TapGameState } from "../hooks/useTapGame";
 import styles from "./BoosterShop.module.css";
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
-export type BoosterType = "points" | "energy_max" | "energy_regen" | "auto_taps";
-
-const BOOSTER_CONFIG: Array<{
-  key: BoosterType;
-  name: string;
-  effectLabel: (level: number) => string;
-}> = [
-  { key: "points", name: "Points per tap", effectLabel: (l) => `${(1 + l * 0.25).toFixed(2)}x` },
-  { key: "energy_max", name: "Energy max", effectLabel: (l) => `+${l * 100}` },
-  { key: "energy_regen", name: "Energy regen", effectLabel: (l) => `+${(l * 0.5).toFixed(1)}/min` },
-  { key: "auto_taps", name: "Auto taps", effectLabel: (l) => `${l * 5}/min` },
-];
+function effectLabel(b: BoosterListItem): string {
+  if (b.type === "points_per_tap") {
+    return `${(1 + b.count * b.effect_amount).toFixed(2)}x`;
+  }
+  if (b.type === "energy_regen") {
+    return `+${(b.count * b.effect_amount).toFixed(2)}/sec`;
+  }
+  if (b.type === "auto_points") {
+    return `${b.count * b.effect_amount}/min`;
+  }
+  return "—";
+}
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "";
@@ -36,11 +36,11 @@ export function BoosterShop({
   score,
   onRefreshState,
 }: BoosterShopProps): React.ReactElement {
-  const [purchasing, setPurchasing] = useState<BoosterType | null>(null);
+  const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const handlePurchase = useCallback(
-    async (boosterType: BoosterType) => {
+    async (boosterId: string) => {
       const token = IS_DEV
         ? "dev"
         : (await sdk.quickAuth.getToken()).token ?? null;
@@ -48,7 +48,7 @@ export function BoosterShop({
         setMessage("Not signed in");
         return;
       }
-      setPurchasing(boosterType);
+      setPurchasingId(boosterId);
       setMessage(null);
       try {
         const res = await fetch(`${getApiBase()}/api/v1/boosters/purchase`, {
@@ -57,7 +57,7 @@ export function BoosterShop({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ booster_type: boosterType }),
+          body: JSON.stringify({ booster_id: boosterId }),
         });
         const data = (await res.json()) as {
           ok?: boolean;
@@ -68,13 +68,15 @@ export function BoosterShop({
           await onRefreshState();
         } else if (data.reason === "insufficient_balance") {
           setMessage("Not enough points");
+        } else if (data.reason === "booster_max_level") {
+          setMessage("Max level reached");
         } else {
           setMessage("Purchase failed");
         }
       } catch {
         setMessage("Request failed");
       } finally {
-        setPurchasing(null);
+        setPurchasingId(null);
       }
     },
     [onRefreshState]
@@ -96,18 +98,7 @@ export function BoosterShop({
     );
   }
 
-  const levels = state.boosterLevels ?? {
-    points: 0,
-    energy_max: 0,
-    energy_regen: 0,
-    auto_taps: 0,
-  };
-  const prices = state.boosterNextPrices ?? {
-    points: 100,
-    energy_max: 150,
-    energy_regen: 200,
-    auto_taps: 250,
-  };
+  const boosters = state.boosters ?? [];
 
   return (
     <div className={styles.wrapper}>
@@ -124,30 +115,32 @@ export function BoosterShop({
       )}
 
       <ul className={styles.list}>
-        {BOOSTER_CONFIG.map(({ key, name, effectLabel }) => {
-          const level = levels[key];
-          const price = prices[key];
-          const canAfford = score >= price;
-          const busy = purchasing === key;
+        {boosters.map((b) => {
+          const atMaxLevel = b.count >= (b.max_level ?? Infinity);
+          const canAfford =
+            b.unlocked && score >= b.next_price && !atMaxLevel;
+          const busy = purchasingId === b.id;
           return (
-            <li key={key} className={styles.card}>
+            <li key={b.id} className={styles.card}>
               <div className={styles.cardHeader}>
-                <span className={styles.cardName}>{name}</span>
-                <span className={styles.cardLevel}>Level {level}</span>
+                <span className={styles.cardName}>{b.emoji} {b.name}</span>
+                <span className={styles.cardLevel}>Level {b.count}</span>
               </div>
               <p className={styles.cardEffect}>
-                Effect: {effectLabel(level)}
+                Effect: {effectLabel(b)}
               </p>
               <div className={styles.cardFooter}>
                 <span className={styles.cardPrice}>
-                  Next: <strong>{price}</strong> pts
+                  {atMaxLevel
+                    ? "Max level"
+                    : `Next: ${b.next_price} pts`}
                 </span>
                 <button
                   type="button"
                   className={styles.buyBtn}
-                  disabled={!canAfford || busy}
-                  onClick={() => handlePurchase(key)}
-                  aria-label={`Buy ${name} for ${price} points`}
+                  disabled={!canAfford || busy || atMaxLevel}
+                  onClick={() => handlePurchase(b.id)}
+                  aria-label={`Buy ${b.name} for ${b.next_price} points`}
                 >
                   {busy ? "…" : "Buy"}
                 </button>

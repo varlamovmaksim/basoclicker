@@ -1,8 +1,10 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
+  boosters as boostersTable,
   sessions as sessionsTable,
   tapCommits,
+  userBoosterPurchases as userBoosterPurchasesTable,
   users as usersTable,
 } from "@/lib/db/schema";
 import { tapConfig } from "./config";
@@ -23,11 +25,21 @@ export interface UserRow {
   lastCommitAt: Date | null;
   lastSeq: number;
   avgTps: number | null;
-  pointsBoosterLevel: number;
-  energyMaxBoosterLevel: number;
-  energyRegenBoosterLevel: number;
-  autoTapsBoosterLevel: number;
   createdAt: Date;
+}
+
+export interface BoosterRow {
+  id: string;
+  type: string;
+  orderIndex: number;
+  name: string;
+  emoji: string;
+  effectAmount: string;
+  basePrice: number;
+  priceIncreaseCoefficient: string;
+  unlockAfterPrevious: number;
+  maxLevel: number;
+  levelEffectCoefficient: string;
 }
 
 export interface SessionRow {
@@ -46,6 +58,20 @@ export async function getUserByFid(fid: string): Promise<UserRow | null> {
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  return mapUserRow(row);
+}
+
+function mapUserRow(row: {
+  id: string;
+  fid: string;
+  balance: unknown;
+  energy: unknown;
+  lastEnergyAt: Date | null;
+  lastCommitAt: Date | null;
+  lastSeq: unknown;
+  avgTps: unknown;
+  createdAt: Date;
+}): UserRow {
   return {
     id: row.id,
     fid: row.fid,
@@ -55,10 +81,6 @@ export async function getUserByFid(fid: string): Promise<UserRow | null> {
     lastCommitAt: row.lastCommitAt,
     lastSeq: row.lastSeq as number,
     avgTps: row.avgTps as number | null,
-    pointsBoosterLevel: row.pointsBoosterLevel,
-    energyMaxBoosterLevel: row.energyMaxBoosterLevel,
-    energyRegenBoosterLevel: row.energyRegenBoosterLevel,
-    autoTapsBoosterLevel: row.autoTapsBoosterLevel,
     createdAt: row.createdAt,
   };
 }
@@ -74,38 +96,10 @@ export async function getOrCreateUserByFid(fid: string): Promise<UserRow> {
       energy: tapConfig.ENERGY_MAX,
       lastEnergyAt: now,
     })
-    .returning({
-      id: usersTable.id,
-      fid: usersTable.fid,
-      balance: usersTable.balance,
-      energy: usersTable.energy,
-      lastEnergyAt: usersTable.lastEnergyAt,
-      lastCommitAt: usersTable.lastCommitAt,
-      lastSeq: usersTable.lastSeq,
-      avgTps: usersTable.avgTps,
-      pointsBoosterLevel: usersTable.pointsBoosterLevel,
-      energyMaxBoosterLevel: usersTable.energyMaxBoosterLevel,
-      energyRegenBoosterLevel: usersTable.energyRegenBoosterLevel,
-      autoTapsBoosterLevel: usersTable.autoTapsBoosterLevel,
-      createdAt: usersTable.createdAt,
-    });
+    .returning();
   const row = inserted[0];
   if (!row) throw new Error("Failed to create user");
-  return {
-    id: row.id,
-    fid: row.fid,
-    balance: row.balance as number,
-    energy: row.energy as number,
-    lastEnergyAt: row.lastEnergyAt,
-    lastCommitAt: row.lastCommitAt,
-    lastSeq: row.lastSeq as number,
-    avgTps: row.avgTps as number | null,
-    pointsBoosterLevel: row.pointsBoosterLevel,
-    energyMaxBoosterLevel: row.energyMaxBoosterLevel,
-    energyRegenBoosterLevel: row.energyRegenBoosterLevel,
-    autoTapsBoosterLevel: row.autoTapsBoosterLevel,
-    createdAt: row.createdAt,
-  };
+  return mapUserRow(row);
 }
 
 export async function getUserById(
@@ -120,21 +114,115 @@ export async function getUserById(
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  return {
+  return mapUserRow(row);
+}
+
+export async function getBoosters(
+  client?: DbClient | unknown
+): Promise<BoosterRow[]> {
+  const c = withClient(client);
+  const rows = await c
+    .select()
+    .from(boostersTable)
+    .orderBy(asc(boostersTable.type), asc(boostersTable.orderIndex));
+  return rows.map((row) => ({
     id: row.id,
-    fid: row.fid,
-    balance: row.balance as number,
-    energy: row.energy as number,
-    lastEnergyAt: row.lastEnergyAt,
-    lastCommitAt: row.lastCommitAt,
-    lastSeq: row.lastSeq as number,
-    avgTps: row.avgTps as number | null,
-    pointsBoosterLevel: row.pointsBoosterLevel,
-    energyMaxBoosterLevel: row.energyMaxBoosterLevel,
-    energyRegenBoosterLevel: row.energyRegenBoosterLevel,
-    autoTapsBoosterLevel: row.autoTapsBoosterLevel,
-    createdAt: row.createdAt,
-  };
+    type: row.type,
+    orderIndex: Number(row.orderIndex),
+    name: row.name,
+    emoji: row.emoji,
+    effectAmount: row.effectAmount,
+    basePrice: row.basePrice as number,
+    priceIncreaseCoefficient: row.priceIncreaseCoefficient,
+    unlockAfterPrevious: Number(row.unlockAfterPrevious),
+    maxLevel: Number(row.maxLevel),
+    levelEffectCoefficient: row.levelEffectCoefficient,
+  }));
+}
+
+export async function getUserBoosterCounts(
+  userId: string,
+  client?: DbClient | unknown
+): Promise<Map<string, number>> {
+  const c = withClient(client);
+  const rows = await c
+    .select({
+      boosterId: userBoosterPurchasesTable.boosterId,
+      count: userBoosterPurchasesTable.count,
+    })
+    .from(userBoosterPurchasesTable)
+    .where(eq(userBoosterPurchasesTable.userId, userId));
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(row.boosterId, row.count);
+  }
+  return map;
+}
+
+export async function purchaseBooster(
+  userId: string,
+  boosterId: string,
+  price: number,
+  client?: DbClient | unknown
+): Promise<{ user: UserRow; counts: Map<string, number> } | null> {
+  async function run(
+    c: DbClient
+  ): Promise<{ user: UserRow; counts: Map<string, number> } | null> {
+    const updated = await c
+      .update(usersTable)
+      .set({ balance: sql`${usersTable.balance} - ${price}` })
+      .where(and(eq(usersTable.id, userId), sql`${usersTable.balance} >= ${price}`))
+      .returning();
+    const userRow = updated[0];
+    if (!userRow) return null;
+    await c
+      .insert(userBoosterPurchasesTable)
+      .values({
+        userId,
+        boosterId,
+        count: 1,
+      })
+      .onConflictDoUpdate({
+        target: [
+          userBoosterPurchasesTable.userId,
+          userBoosterPurchasesTable.boosterId,
+        ],
+        set: {
+          count: sql`${userBoosterPurchasesTable.count} + 1`,
+        },
+      });
+    const counts = await getUserBoosterCounts(userId, c);
+    return { user: mapUserRow(userRow), counts };
+  }
+  if (client) return run(client as DbClient);
+  return db.transaction((tx) => run(tx as unknown as DbClient));
+}
+
+/**
+ * Dev-only: set purchase count for a user and booster.
+ */
+export async function setUserBoosterCount(
+  userId: string,
+  boosterId: string,
+  count: number,
+  client?: DbClient | unknown
+): Promise<void> {
+  const c = withClient(client);
+  const safeCount = Math.max(0, Math.floor(count));
+  await c
+    .insert(userBoosterPurchasesTable)
+    .values({
+      userId,
+      boosterId,
+      count: safeCount,
+    })
+    .onConflictDoUpdate({
+      target: [
+        userBoosterPurchasesTable.userId,
+        userBoosterPurchasesTable.boosterId,
+      ],
+      set: { count: safeCount },
+    });
 }
 
 export async function getSessionByIdAndUserId(
@@ -179,9 +267,11 @@ export async function getLatestSessionByUserId(
 
 export async function createSession(
   userId: string,
-  deviceFingerprint?: string | null
+  deviceFingerprint?: string | null,
+  client?: DbClient | unknown
 ): Promise<SessionRow> {
-  const inserted = await db
+  const c = withClient(client);
+  const inserted = await c
     .insert(sessionsTable)
     .values({
       userId,
@@ -275,6 +365,23 @@ export async function updateUserAfterCommit(
     .where(eq(usersTable.id, userId));
 }
 
+/** Update only balance and last_commit_at (e.g. after idle mining grant). Does not change energy or last_seq. */
+export async function updateUserAfterIdleMining(
+  userId: string,
+  balanceDelta: number,
+  lastCommitAt: Date,
+  client?: DbClient | unknown
+): Promise<void> {
+  const c = withClient(client);
+  await c
+    .update(usersTable)
+    .set({
+      balance: sql`${usersTable.balance} + ${balanceDelta}`,
+      lastCommitAt,
+    })
+    .where(eq(usersTable.id, userId));
+}
+
 export async function incrementSessionCommitCount(
   sessionId: string,
   client?: DbClient | unknown
@@ -288,99 +395,3 @@ export async function incrementSessionCommitCount(
     .where(eq(sessionsTable.id, sessionId));
 }
 
-export interface SetBoosterLevelsInput {
-  points_booster_level?: number;
-  energy_max_booster_level?: number;
-  energy_regen_booster_level?: number;
-  auto_taps_booster_level?: number;
-}
-
-export async function setBoosterLevels(
-  userId: string,
-  levels: SetBoosterLevelsInput,
-  client?: DbClient | unknown
-): Promise<void> {
-  const c = withClient(client);
-  const updates: {
-    pointsBoosterLevel?: number;
-    energyMaxBoosterLevel?: number;
-    energyRegenBoosterLevel?: number;
-    autoTapsBoosterLevel?: number;
-  } = {};
-  if (levels.points_booster_level !== undefined) {
-    updates.pointsBoosterLevel = Math.max(0, Math.floor(levels.points_booster_level));
-  }
-  if (levels.energy_max_booster_level !== undefined) {
-    updates.energyMaxBoosterLevel = Math.max(0, Math.floor(levels.energy_max_booster_level));
-  }
-  if (levels.energy_regen_booster_level !== undefined) {
-    updates.energyRegenBoosterLevel = Math.max(0, Math.floor(levels.energy_regen_booster_level));
-  }
-  if (levels.auto_taps_booster_level !== undefined) {
-    updates.autoTapsBoosterLevel = Math.max(0, Math.floor(levels.auto_taps_booster_level));
-  }
-  if (Object.keys(updates).length === 0) return;
-  await c.update(usersTable).set(updates).where(eq(usersTable.id, userId));
-}
-
-export type BoosterTypeKey = "points" | "energy_max" | "energy_regen" | "auto_taps";
-
-/**
- * Deduct price from balance and increment one booster level.
- * Returns updated user row or null if insufficient balance or user not found.
- */
-export async function purchaseBoosterLevel(
-  userId: string,
-  boosterType: BoosterTypeKey,
-  price: number,
-  client?: DbClient | unknown
-): Promise<UserRow | null> {
-  const c = withClient(client);
-  const levelUpdate =
-    boosterType === "points"
-      ? { pointsBoosterLevel: sql`${usersTable.pointsBoosterLevel} + 1` }
-      : boosterType === "energy_max"
-        ? { energyMaxBoosterLevel: sql`${usersTable.energyMaxBoosterLevel} + 1` }
-        : boosterType === "energy_regen"
-          ? { energyRegenBoosterLevel: sql`${usersTable.energyRegenBoosterLevel} + 1` }
-          : { autoTapsBoosterLevel: sql`${usersTable.autoTapsBoosterLevel} + 1` };
-  const updated = await c
-    .update(usersTable)
-    .set({
-      balance: sql`${usersTable.balance} - ${price}`,
-      ...levelUpdate,
-    })
-    .where(and(eq(usersTable.id, userId), sql`${usersTable.balance} >= ${price}`))
-    .returning({
-      id: usersTable.id,
-      fid: usersTable.fid,
-      balance: usersTable.balance,
-      energy: usersTable.energy,
-      lastEnergyAt: usersTable.lastEnergyAt,
-      lastCommitAt: usersTable.lastCommitAt,
-      lastSeq: usersTable.lastSeq,
-      avgTps: usersTable.avgTps,
-      pointsBoosterLevel: usersTable.pointsBoosterLevel,
-      energyMaxBoosterLevel: usersTable.energyMaxBoosterLevel,
-      energyRegenBoosterLevel: usersTable.energyRegenBoosterLevel,
-      autoTapsBoosterLevel: usersTable.autoTapsBoosterLevel,
-      createdAt: usersTable.createdAt,
-    });
-  const row = updated[0];
-  if (!row) return null;
-  return {
-    id: row.id,
-    fid: row.fid,
-    balance: row.balance as number,
-    energy: row.energy as number,
-    lastEnergyAt: row.lastEnergyAt,
-    lastCommitAt: row.lastCommitAt,
-    lastSeq: row.lastSeq as number,
-    avgTps: row.avgTps as number | null,
-    pointsBoosterLevel: row.pointsBoosterLevel,
-    energyMaxBoosterLevel: row.energyMaxBoosterLevel,
-    energyRegenBoosterLevel: row.energyRegenBoosterLevel,
-    autoTapsBoosterLevel: row.autoTapsBoosterLevel,
-    createdAt: row.createdAt,
-  };
-}

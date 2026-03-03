@@ -1,32 +1,42 @@
 import { db } from "@/lib/db/client";
 import {
   createSession,
+  getBoosters,
   getLatestSessionByUserId,
   getOrCreateUserByFid,
   getSessionByIdAndUserId,
+  getUserBoosterCounts,
   getUserByFid,
   getUserById,
   incrementSessionCommitCount,
   insertTapCommit,
-  purchaseBoosterLevel,
+  purchaseBooster as repoPurchaseBooster,
   setUserEnergy,
   updateUserAfterCommit,
-  type UserRow,
+  updateUserAfterIdleMining,
+  type BoosterRow,
 } from "./tap.repository";
-import type { BoosterTypeKey } from "./tap.repository";
 import type {
-  BoosterLevels,
-  BoosterNextPrices,
+  BoosterListItem,
   TapCommitRequest,
   TapCommitResponse,
   TapStateResponse,
 } from "./types";
 import { tapConfig } from "./config";
-import {
-  BOOSTER_BASE_PRICES,
-  BOOSTER_EFFECTS,
-  getBoosterNextPrice,
-} from "./boosters.config";
+import { getBoosterNextPrice } from "./boosters.config";
+
+/** Total effect contribution from a booster with level effect coefficient (geometric series). */
+function effectiveContribution(
+  effectAmount: number,
+  coefficient: number,
+  count: number
+): number {
+  if (count <= 0) return 0;
+  if (coefficient === 1) return count * effectAmount;
+  return (
+    effectAmount * (Math.pow(coefficient, count) - 1) / (coefficient - 1)
+  );
+}
 
 export interface AuthUserForTap {
   fid: string;
@@ -34,47 +44,117 @@ export interface AuthUserForTap {
 
 export interface EffectiveBoosterStats {
   energyMax: number;
-  energyRegenPerMin: number;
+  energyRegenPerSec: number;
   pointsMultiplier: number;
-  autoTapsPerMin: number;
-  boosterLevels: BoosterLevels;
-  boosterNextPrices: BoosterNextPrices;
+  /** Fixed score added per second (from auto_points boosters). Effect amount is interpreted as points/sec. */
+  miningPointsPerSec: number;
 }
 
-export function getEffectiveBoosterStats(user: UserRow): EffectiveBoosterStats {
-  const levels: BoosterLevels = {
-    points: user.pointsBoosterLevel,
-    energy_max: user.energyMaxBoosterLevel,
-    energy_regen: user.energyRegenBoosterLevel,
-    auto_taps: user.autoTapsBoosterLevel,
-  };
-  const energyMax =
-    tapConfig.ENERGY_MAX + levels.energy_max * BOOSTER_EFFECTS.ENERGY_MAX_PER_LEVEL;
-  const energyRegenPerMin =
-    tapConfig.ENERGY_REGEN_PER_MIN +
-    levels.energy_regen * BOOSTER_EFFECTS.ENERGY_REGEN_PER_LEVEL;
-  const pointsMultiplier =
-    1 + levels.points * BOOSTER_EFFECTS.POINTS_EFFECT_PER_LEVEL;
-  const autoTapsPerMin = levels.auto_taps * BOOSTER_EFFECTS.AUTO_TAPS_PER_LEVEL;
-  const boosterNextPrices: BoosterNextPrices = {
-    points: getBoosterNextPrice(BOOSTER_BASE_PRICES.POINTS, levels.points),
-    energy_max: getBoosterNextPrice(BOOSTER_BASE_PRICES.ENERGY_MAX, levels.energy_max),
-    energy_regen: getBoosterNextPrice(BOOSTER_BASE_PRICES.ENERGY_REGEN, levels.energy_regen),
-    auto_taps: getBoosterNextPrice(BOOSTER_BASE_PRICES.AUTO_TAPS, levels.auto_taps),
-  };
+/** Compute effective stats from boosters and user purchase counts. */
+export async function getEffectiveBoosterStats(
+  userId: string,
+  client?: unknown
+): Promise<EffectiveBoosterStats> {
+  const [boosters, counts] = await Promise.all([
+    getBoosters(client),
+    getUserBoosterCounts(userId, client),
+  ]);
+  let energyRegenPerSec = tapConfig.ENERGY_REGEN_PER_SEC;
+  let pointsMultiplier = 1;
+  let miningPointsPerSec = 0;
+  for (const b of boosters) {
+    const count = counts.get(b.id) ?? 0;
+    const effectAmount = Number(b.effectAmount);
+    const coeff = Number(b.levelEffectCoefficient);
+    const contribution = effectiveContribution(effectAmount, coeff, count);
+    if (b.type === "energy_regen") energyRegenPerSec += contribution;
+    else if (b.type === "points_per_tap") pointsMultiplier += contribution;
+    else if (b.type === "auto_points") miningPointsPerSec += contribution;
+  }
   return {
-    energyMax,
-    energyRegenPerMin,
+    energyMax: tapConfig.ENERGY_MAX,
+    energyRegenPerSec,
     pointsMultiplier,
-    autoTapsPerMin,
-    boosterLevels: levels,
-    boosterNextPrices,
+    miningPointsPerSec,
   };
+}
+
+/** Build booster list for API (with count, next_price, unlocked). */
+export async function getBoosterListForUser(
+  userId: string,
+  client?: unknown
+): Promise<BoosterListItem[]> {
+  const [boosters, counts] = await Promise.all([
+    getBoosters(client),
+    getUserBoosterCounts(userId, client),
+  ]);
+  const byType: Record<string, BoosterRow[]> = {};
+  for (const b of boosters) {
+    if (!byType[b.type]) byType[b.type] = [];
+    byType[b.type].push(b);
+  }
+  const list: BoosterListItem[] = [];
+  const coeff = (s: string) => Number(s);
+  for (const b of boosters) {
+    const count = counts.get(b.id) ?? 0;
+    const nextPrice = getBoosterNextPrice(
+      b.basePrice,
+      coeff(b.priceIncreaseCoefficient),
+      count
+    );
+    const prevInType = byType[b.type];
+    const orderIdx = Number(b.orderIndex);
+    const prevIndex = prevInType?.findIndex((x) => x.id === b.id) ?? -1;
+    const prevBooster = prevIndex > 0 ? prevInType?.[prevIndex - 1] : null;
+    const currentPreviousCount = prevBooster
+      ? counts.get(prevBooster.id) ?? 0
+      : 0;
+    // First in type (order_index 0 or first in list) is always unlocked
+    const isFirstInType = orderIdx === 0 || prevIndex === 0;
+    const unlocked =
+      isFirstInType ||
+      (prevBooster != null &&
+        currentPreviousCount >= Number(b.unlockAfterPrevious));
+    list.push({
+      id: b.id,
+      type: b.type,
+      order_index: orderIdx,
+      name: b.name,
+      emoji: b.emoji,
+      effect_amount: Number(b.effectAmount),
+      count,
+      next_price: nextPrice,
+      unlocked,
+      unlock_after_previous: Number(b.unlockAfterPrevious),
+      current_previous_count: prevBooster != null ? currentPreviousCount : undefined,
+      max_level: Number(b.maxLevel),
+      level_effect_coefficient: Number(b.levelEffectCoefficient),
+    });
+  }
+  return list;
+}
+
+/**
+ * Compute idle mining points for elapsed time since last_commit_at (fallback: last_energy_at, then createdAt).
+ * Mining does not consume energy.
+ */
+function computeIdleMining(
+  lastCommitAt: Date | null,
+  lastEnergyAt: Date | null,
+  createdAt: Date,
+  serverNow: Date,
+  miningPointsPerSec: number
+): number {
+  if (miningPointsPerSec <= 0) return 0;
+  const from = lastCommitAt ?? lastEnergyAt ?? createdAt;
+  const elapsedMs = serverNow.getTime() - from.getTime();
+  const elapsedSec = elapsedMs / 1000;
+  return Math.floor(elapsedSec * miningPointsPerSec);
 }
 
 /**
  * Compute current energy after regen since last_energy_at (or createdAt if never set).
- * Uses effective energyMax and energyRegenPerMin (from boosters).
+ * Uses effective energyMax and energyRegenPerSec (from boosters).
  */
 function currentEnergyAfterRegen(
   energy: number,
@@ -82,12 +162,12 @@ function currentEnergyAfterRegen(
   createdAt: Date,
   serverNow: Date,
   energyMax: number,
-  energyRegenPerMin: number
+  energyRegenPerSec: number
 ): number {
   const from = lastEnergyAt ?? createdAt;
   const elapsedMs = serverNow.getTime() - from.getTime();
-  const elapsedMinutes = elapsedMs / 60_000;
-  const regen = Math.floor(elapsedMinutes * energyRegenPerMin);
+  const elapsedSeconds = elapsedMs / 1000;
+  const regen = Math.floor(elapsedSeconds * energyRegenPerSec);
   const added = Math.min(energyMax - energy, regen);
   return Math.min(energyMax, energy + added);
 }
@@ -141,18 +221,27 @@ export async function commitTaps(
       };
     }
 
-    const stats = getEffectiveBoosterStats(currentUser);
+    const stats = await getEffectiveBoosterStats(currentUser.id, tx as unknown);
     const currentEnergy = currentEnergyAfterRegen(
       currentUser.energy,
       currentUser.lastEnergyAt,
       currentUser.createdAt,
       serverNow,
       stats.energyMax,
-      stats.energyRegenPerMin
+      stats.energyRegenPerSec
     );
-    const effective = Math.min(requested, currentEnergy);
-    const balanceDelta = Math.floor(effective * stats.pointsMultiplier);
-    const newEnergy = currentEnergy - effective;
+
+    const idleMiningPoints = computeIdleMining(
+      currentUser.lastCommitAt,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.miningPointsPerSec
+    );
+    const effectiveManual = Math.min(requested, currentEnergy);
+    const balanceDelta =
+      Math.floor(effectiveManual * stats.pointsMultiplier) + idleMiningPoints;
+    const newEnergy = currentEnergy - effectiveManual;
     const newBalance = currentUser.balance + balanceDelta;
 
     await updateUserAfterCommit(
@@ -170,8 +259,8 @@ export async function commitTaps(
         sessionId: body.session_id,
         seq: body.seq,
         requestedTaps: requested,
-        appliedTaps: effective,
-        maxAllowed: effective,
+        appliedTaps: effectiveManual,
+        maxAllowed: effectiveManual,
         ratio: null,
         abuseLevel: null,
         serverTime: serverNow,
@@ -181,18 +270,19 @@ export async function commitTaps(
     );
     await incrementSessionCommitCount(body.session_id, tx);
 
+    const boosters = await getBoosterListForUser(user.id, tx as unknown);
     return {
       ok: true,
       server_seq: body.seq,
-      applied_taps: effective,
+      applied_taps: effectiveManual,
+      mining_points_applied: idleMiningPoints,
       balance: newBalance,
       energy: newEnergy,
       energy_max: stats.energyMax,
-      energy_regen_per_min: stats.energyRegenPerMin,
+      energy_regen_per_sec: stats.energyRegenPerSec,
       points_multiplier: stats.pointsMultiplier,
-      auto_taps_per_min: stats.autoTapsPerMin,
-      booster_levels: stats.boosterLevels,
-      booster_next_prices: stats.boosterNextPrices,
+      mining_points_per_sec: stats.miningPointsPerSec,
+      boosters,
       server_time: serverNow.getTime(),
       resync_required: false,
       session_id: body.session_id,
@@ -207,48 +297,77 @@ export interface StartSessionResult {
   last_seq: number;
   energy: number;
   energy_max: number;
-  energy_regen_per_min: number;
+  energy_regen_per_sec: number;
+  server_time: number;
   points_multiplier?: number;
-  auto_taps_per_min?: number;
-  booster_levels?: BoosterLevels;
-  booster_next_prices?: BoosterNextPrices;
+  mining_points_per_sec?: number;
+  boosters?: BoosterListItem[];
 }
 
 /**
  * Create or get user, create a new session, return session_id and initial state.
+ * Applies idle mining in the same transaction when applicable.
  */
 export async function startSession(
   auth: AuthUserForTap,
   deviceFingerprint?: string | null
 ): Promise<StartSessionResult> {
   const user = await getOrCreateUserByFid(auth.fid);
-  const session = await createSession(user.id, deviceFingerprint);
-  const serverNow = new Date();
-  const stats = getEffectiveBoosterStats(user);
-  const energy = currentEnergyAfterRegen(
-    user.energy,
-    user.lastEnergyAt,
-    user.createdAt,
-    serverNow,
-    stats.energyMax,
-    stats.energyRegenPerMin
-  );
-  return {
-    session_id: session.id,
-    balance: user.balance,
-    last_seq: user.lastSeq,
-    energy,
-    energy_max: stats.energyMax,
-    energy_regen_per_min: stats.energyRegenPerMin,
-    points_multiplier: stats.pointsMultiplier,
-    auto_taps_per_min: stats.autoTapsPerMin,
-    booster_levels: stats.boosterLevels,
-    booster_next_prices: stats.boosterNextPrices,
-  };
+
+  return await db.transaction(async (tx) => {
+    const session = await createSession(user.id, deviceFingerprint, tx);
+    const currentUser = await getUserById(user.id, tx);
+    if (!currentUser) throw new Error("User not found after createSession");
+
+    const serverNow = new Date();
+    const [stats, boosters] = await Promise.all([
+      getEffectiveBoosterStats(currentUser.id, tx as unknown),
+      getBoosterListForUser(currentUser.id, tx as unknown),
+    ]);
+    const miningPoints = computeIdleMining(
+      currentUser.lastCommitAt,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.miningPointsPerSec
+    );
+    if (miningPoints > 0) {
+      await updateUserAfterIdleMining(
+        currentUser.id,
+        miningPoints,
+        serverNow,
+        tx
+      );
+    }
+    const balance =
+      miningPoints > 0 ? currentUser.balance + miningPoints : currentUser.balance;
+    const energy = currentEnergyAfterRegen(
+      currentUser.energy,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.energyMax,
+      stats.energyRegenPerSec
+    );
+
+    return {
+      session_id: session.id,
+      balance,
+      last_seq: currentUser.lastSeq,
+      energy,
+      energy_max: stats.energyMax,
+      energy_regen_per_sec: stats.energyRegenPerSec,
+      server_time: serverNow.getTime(),
+      points_multiplier: stats.pointsMultiplier,
+      mining_points_per_sec: stats.miningPointsPerSec,
+      boosters,
+    };
+  });
 }
 
 /**
  * Return full state for the authenticated user (balance, energy, last_seq, session_id).
+ * Applies idle mining in a transaction when applicable (persists balance + last_commit_at).
  */
 export async function getFullState(
   auth: AuthUserForTap
@@ -256,31 +375,55 @@ export async function getFullState(
   const user = await getUserByFid(auth.fid);
   if (!user) return null;
 
-  const session = await getLatestSessionByUserId(user.id);
-  const serverNow = new Date();
-  const stats = getEffectiveBoosterStats(user);
-  const energy = currentEnergyAfterRegen(
-    user.energy,
-    user.lastEnergyAt,
-    user.createdAt,
-    serverNow,
-    stats.energyMax,
-    stats.energyRegenPerMin
-  );
+  return await db.transaction(async (tx) => {
+    const currentUser = await getUserById(user.id, tx);
+    if (!currentUser) return null;
 
-  return {
-    balance: user.balance,
-    last_seq: user.lastSeq,
-    session_id: session?.id ?? "",
-    energy,
-    energy_max: stats.energyMax,
-    energy_regen_per_min: stats.energyRegenPerMin,
-    points_multiplier: stats.pointsMultiplier,
-    auto_taps_per_min: stats.autoTapsPerMin,
-    booster_levels: stats.boosterLevels,
-    booster_next_prices: stats.boosterNextPrices,
-    server_time: serverNow.getTime(),
-  };
+    const session = await getLatestSessionByUserId(user.id);
+    const serverNow = new Date();
+    const [stats, boosters] = await Promise.all([
+      getEffectiveBoosterStats(currentUser.id, tx as unknown),
+      getBoosterListForUser(currentUser.id, tx as unknown),
+    ]);
+    const miningPoints = computeIdleMining(
+      currentUser.lastCommitAt,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.miningPointsPerSec
+    );
+    if (miningPoints > 0) {
+      await updateUserAfterIdleMining(
+        currentUser.id,
+        miningPoints,
+        serverNow,
+        tx
+      );
+    }
+    const balance =
+      miningPoints > 0 ? currentUser.balance + miningPoints : currentUser.balance;
+    const energy = currentEnergyAfterRegen(
+      currentUser.energy,
+      currentUser.lastEnergyAt,
+      currentUser.createdAt,
+      serverNow,
+      stats.energyMax,
+      stats.energyRegenPerSec
+    );
+
+    return {
+      balance,
+      last_seq: currentUser.lastSeq,
+      session_id: session?.id ?? "",
+      energy,
+      energy_max: stats.energyMax,
+      energy_regen_per_sec: stats.energyRegenPerSec,
+      points_multiplier: stats.pointsMultiplier,
+      mining_points_per_sec: stats.miningPointsPerSec,
+      boosters,
+      server_time: serverNow.getTime(),
+    };
+  });
 }
 
 /**
@@ -289,49 +432,59 @@ export async function getFullState(
 export async function restoreEnergy(auth: AuthUserForTap): Promise<{ energy: number } | null> {
   const user = await getUserByFid(auth.fid);
   if (!user) return null;
-  const stats = getEffectiveBoosterStats(user);
+  const stats = await getEffectiveBoosterStats(user.id);
   await setUserEnergy(user.id, stats.energyMax, new Date());
   return { energy: stats.energyMax };
 }
 
 export type PurchaseBoosterResult =
-  | { ok: true; balance: number; booster_levels: BoosterLevels }
-  | { ok: false; reason: "user_not_found" | "insufficient_balance" };
+  | { ok: true; balance: number; boosters: BoosterListItem[] }
+  | {
+      ok: false;
+      reason:
+        | "user_not_found"
+        | "insufficient_balance"
+        | "booster_not_found"
+        | "booster_locked"
+        | "booster_max_level";
+    };
 
 /**
- * Purchase one level of a booster by deducting balance. Returns new balance and levels on success.
+ * Purchase one level of a booster by deducting balance. Returns new balance and booster list on success.
  */
 export async function purchaseBooster(
   auth: AuthUserForTap,
-  boosterType: BoosterTypeKey
+  boosterId: string
 ): Promise<PurchaseBoosterResult> {
   const user = await getUserByFid(auth.fid);
   if (!user) return { ok: false, reason: "user_not_found" };
 
-  const levels = {
-    points: user.pointsBoosterLevel,
-    energy_max: user.energyMaxBoosterLevel,
-    energy_regen: user.energyRegenBoosterLevel,
-    auto_taps: user.autoTapsBoosterLevel,
-  };
-  const basePrices = {
-    points: BOOSTER_BASE_PRICES.POINTS,
-    energy_max: BOOSTER_BASE_PRICES.ENERGY_MAX,
-    energy_regen: BOOSTER_BASE_PRICES.ENERGY_REGEN,
-    auto_taps: BOOSTER_BASE_PRICES.AUTO_TAPS,
-  };
-  const price = getBoosterNextPrice(basePrices[boosterType], levels[boosterType]);
+  const boosters = await getBoosters();
+  const counts = await getUserBoosterCounts(user.id);
+  const booster = boosters.find((b) => b.id === boosterId);
+  if (!booster) return { ok: false, reason: "booster_not_found" };
 
+  const byType = boosters.filter((b) => b.type === booster.type);
+  const prevIndex = byType.findIndex((b) => b.id === booster.id) - 1;
+  const prevBooster = prevIndex >= 0 ? byType[prevIndex] : null;
+  const currentPreviousCount = prevBooster ? counts.get(prevBooster.id) ?? 0 : 0;
+  const orderIdx = Number(booster.orderIndex);
+  const unlocked =
+    orderIdx === 0 ||
+    (prevBooster != null &&
+      currentPreviousCount >= Number(booster.unlockAfterPrevious));
+  if (!unlocked) return { ok: false, reason: "booster_locked" };
+
+  const count = counts.get(booster.id) ?? 0;
+  if (count >= booster.maxLevel) return { ok: false, reason: "booster_max_level" };
+
+  const coeff = Number(booster.priceIncreaseCoefficient);
+  const price = getBoosterNextPrice(booster.basePrice, coeff, count);
   if (user.balance < price) return { ok: false, reason: "insufficient_balance" };
 
-  const updated = await purchaseBoosterLevel(user.id, boosterType, price);
-  if (!updated) return { ok: false, reason: "insufficient_balance" };
+  const result = await repoPurchaseBooster(user.id, boosterId, price);
+  if (!result) return { ok: false, reason: "insufficient_balance" };
 
-  const newLevels: BoosterLevels = {
-    points: updated.pointsBoosterLevel,
-    energy_max: updated.energyMaxBoosterLevel,
-    energy_regen: updated.energyRegenBoosterLevel,
-    auto_taps: updated.autoTapsBoosterLevel,
-  };
-  return { ok: true, balance: updated.balance, booster_levels: newLevels };
+  const newBoosters = await getBoosterListForUser(user.id);
+  return { ok: true, balance: result.user.balance, boosters: newBoosters };
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
-import type { TapGameState } from "../hooks/useTapGame";
+import type { BoosterListItem, TapGameState } from "../hooks/useTapGame";
 import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
 import { SKINS } from "../../lib/baso/constants";
@@ -19,51 +19,29 @@ export interface ShopViewProps {
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
-type BoosterType = "points" | "energy_max" | "energy_regen" | "auto_taps";
-
 type BoostCategory = "tap" | "auto" | "energy";
 
-const BOOSTER_CONFIG: Array<{
-  key: BoosterType;
-  category: BoostCategory;
-  title: string;
-  icon: string;
-  effectLabel: (level: number) => string;
-  unit: string;
-}> = [
-  {
-    key: "points",
-    category: "tap",
-    title: "Bigger Bite",
-    icon: "👆",
-    effectLabel: (l) => `${(1 + l * 0.25).toFixed(2)}x`,
-    unit: "/tap",
-  },
-  {
-    key: "auto_taps",
-    category: "auto",
-    title: "Agent Upgrade",
-    icon: "⏱️",
-    effectLabel: (l) => `${((l * 5) / 60).toFixed(1).replace(/\.0$/, "")}`,
-    unit: "/sec",
-  },
-  {
-    key: "energy_max",
-    category: "energy",
-    title: "Bigger Stomach",
-    icon: "⚡",
-    effectLabel: (l) => `+${l * 100}`,
-    unit: "",
-  },
-  {
-    key: "energy_regen",
-    category: "energy",
-    title: "Faster Recharge",
-    icon: "⚡",
-    effectLabel: (l) => `+${(l * 0.5).toFixed(1)}/min`,
-    unit: "",
-  },
-];
+const TYPE_TO_CATEGORY: Record<string, BoostCategory> = {
+  points_per_tap: "tap",
+  auto_points: "auto",
+  energy_regen: "energy",
+};
+
+function effectLabel(b: BoosterListItem): string {
+  if (b.type === "points_per_tap") {
+    const mult = (1 + b.count * b.effect_amount).toFixed(2);
+    return `${mult}x /tap`;
+  }
+  if (b.type === "energy_regen") {
+    const val = (b.count * b.effect_amount).toFixed(2);
+    return `+${val}/sec`;
+  }
+  if (b.type === "auto_points") {
+    const perSec = ((b.count * b.effect_amount) / 60).toFixed(1).replace(/\.0$/, "");
+    return `${perSec}/sec`;
+  }
+  return "";
+}
 
 function getApiBase(): string {
   if (typeof window === "undefined") return "";
@@ -71,62 +49,62 @@ function getApiBase(): string {
 }
 
 function BoosterRow({
-  cfg,
-  level,
-  price,
-  score,
+  booster,
   canBuy,
   busy,
   onPurchase,
 }: {
-  cfg: (typeof BOOSTER_CONFIG)[number];
-  level: number;
-  price: number;
-  score: number;
+  booster: BoosterListItem;
   canBuy: boolean;
   busy: boolean;
-  onPurchase: (key: BoosterType) => void;
+  onPurchase: (id: string) => void;
 }): React.ReactElement {
-  const valueStr = cfg.effectLabel(level) + (cfg.unit ? ` ${cfg.unit}` : "");
-  const dimmed = !canBuy || busy;
+  const valueStr = effectLabel(booster);
+  const atMaxLevel = booster.count >= (booster.max_level ?? Infinity);
+  const dimmed = !canBuy || busy || !booster.unlocked || atMaxLevel;
 
   return (
     <button
       type="button"
       className={`relative flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left transition-opacity ${
         dimmed ? "opacity-80" : ""
-      } ${canBuy && !busy ? "cursor-pointer" : "cursor-default"}`}
+      } ${canBuy && !busy && booster.unlocked ? "cursor-pointer" : "cursor-default"}`}
       onClick={(e) => {
         e.preventDefault();
-        if (!canBuy || busy) return;
-        onPurchase(cfg.key);
+        if (!canBuy || busy || !booster.unlocked) return;
+        onPurchase(booster.id);
       }}
-      disabled={!canBuy || busy}
-      aria-label={`${cfg.title}, ${level} lvl, ${formatCompact(price)} donuts`}
+      disabled={!canBuy || busy || !booster.unlocked || atMaxLevel}
+      aria-label={`${booster.name}, ${booster.count} lvl, ${formatCompact(booster.next_price)} donuts`}
     >
       <div
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--blue)]/20 bg-[var(--blue)]/10 text-lg"
         aria-hidden
       >
-        {cfg.icon}
+        {booster.emoji}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate font-black text-slate-900">{cfg.title}</div>
+        <div className="truncate font-black text-slate-900">{booster.name}</div>
         <div className="mt-0.5 text-xs font-extrabold text-slate-500">
-          {level} lvl{valueStr ? ` | ${valueStr}` : ""}
+          {booster.count} lvl{valueStr ? ` | ${valueStr}` : ""}
         </div>
+        {!booster.unlocked && booster.current_previous_count != null && (
+          <div className="mt-0.5 text-xs text-amber-600">
+            Buy {Math.max(0, booster.unlock_after_previous - booster.current_previous_count)} more of previous to unlock
+          </div>
+        )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <span
           className={`text-sm font-black ${dimmed ? "text-slate-400" : "text-slate-900"}`}
         >
-          🍩 {formatCompact(price)}
+          {atMaxLevel ? "Max" : `🍩 ${formatCompact(booster.next_price)}`}
         </span>
         <span className="text-slate-400 font-black text-base leading-none" aria-hidden>
           ›
         </span>
       </div>
-      {!canBuy && (
+      {!booster.unlocked && (
         <div
           className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/85 backdrop-blur-[2px]"
           aria-hidden
@@ -150,17 +128,17 @@ export function ShopView({
   setSkin,
 }: ShopViewProps): React.ReactElement {
   const [boostCategory, setBoostCategory] = useState<BoostCategory>("tap");
-  const [purchasing, setPurchasing] = useState<BoosterType | null>(null);
+  const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const handlePurchase = useCallback(
-    async (boosterType: BoosterType) => {
+    async (boosterId: string) => {
       const token = IS_DEV ? "dev" : (await sdk.quickAuth.getToken()).token ?? null;
       if (!token) {
         setMessage("Not signed in");
         return;
       }
-      setPurchasing(boosterType);
+      setPurchasingId(boosterId);
       setMessage(null);
       try {
         const res = await fetch(`${getApiBase()}/api/v1/boosters/purchase`, {
@@ -169,23 +147,29 @@ export function ShopView({
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ booster_type: boosterType }),
+          body: JSON.stringify({ booster_id: boosterId }),
         });
         const data = (await res.json()) as {
           ok?: boolean;
           reason?: string;
+          balance?: number;
+          boosters?: BoosterListItem[];
         };
-        if (data.ok) {
+        if (data.ok && Array.isArray(data.boosters)) {
           await refreshState();
         } else if (data.reason === "insufficient_balance") {
           setMessage("Not enough points");
+        } else if (data.reason === "booster_locked") {
+          setMessage("Unlock previous booster first");
+        } else if (data.reason === "booster_max_level") {
+          setMessage("Max level reached");
         } else {
           setMessage("Purchase failed");
         }
       } catch {
         setMessage("Request failed");
       } finally {
-        setPurchasing(null);
+        setPurchasingId(null);
       }
     },
     [refreshState]
@@ -201,26 +185,13 @@ export function ShopView({
     );
   }
 
-  const levels = state.boosterLevels ?? {
-    points: 0,
-    energy_max: 0,
-    energy_regen: 0,
-    auto_taps: 0,
-  };
-  const prices = state.boosterNextPrices ?? {
-    points: 100,
-    energy_max: 150,
-    energy_regen: 200,
-    auto_taps: 250,
-  };
-
-  const boostersByCategory = BOOSTER_CONFIG.filter(
-    (c) => c.category === boostCategory
+  const boosters = state.boosters ?? [];
+  const boostersByCategory = boosters.filter(
+    (b) => TYPE_TO_CATEGORY[b.type] === boostCategory
   );
 
   return (
     <div className="space-y-3">
-      {/* Segmented: Boost | Customize */}
       <div className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-200 bg-white/80 p-1">
         <button
           type="button"
@@ -320,16 +291,16 @@ export function ShopView({
           )}
 
           <div className="flex flex-col gap-2" role="tabpanel">
-            {boostersByCategory.map((cfg) => (
+            {boostersByCategory.map((booster) => (
               <BoosterRow
-                key={cfg.key}
-                cfg={cfg}
-                level={levels[cfg.key]}
-                price={prices[cfg.key]}
-                score={score}
-                canBuy={score >= prices[cfg.key]}
-                busy={purchasing === cfg.key}
-                onPurchase={(key) => void handlePurchase(key)}
+                key={booster.id}
+                booster={booster}
+                canBuy={
+                  score >= booster.next_price &&
+                  booster.count < (booster.max_level ?? Infinity)
+                }
+                busy={purchasingId === booster.id}
+                onPurchase={(id) => void handlePurchase(id)}
               />
             ))}
           </div>

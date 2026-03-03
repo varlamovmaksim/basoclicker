@@ -66,18 +66,20 @@ function getApiBase(): string {
   return window.location.origin;
 }
 
-export interface BoosterLevels {
-  points: number;
-  energy_max: number;
-  energy_regen: number;
-  auto_taps: number;
-}
-
-export interface BoosterNextPrices {
-  points: number;
-  energy_max: number;
-  energy_regen: number;
-  auto_taps: number;
+export interface BoosterListItem {
+  id: string;
+  type: string;
+  order_index: number;
+  name: string;
+  emoji: string;
+  effect_amount: number;
+  count: number;
+  next_price: number;
+  unlocked: boolean;
+  unlock_after_previous: number;
+  current_previous_count?: number;
+  max_level: number;
+  level_effect_coefficient?: number;
 }
 
 export interface TapGameState {
@@ -91,13 +93,12 @@ export interface TapGameState {
   /** Last known energy from server (as of energyServerTime). */
   energy: number;
   energyMax: number;
-  energyRegenPerMin: number;
+  energyRegenPerSec: number;
   /** Timestamp when energy was last set by server (ms). */
   energyServerTime: number;
   pointsMultiplier: number;
-  autoTapsPerMin: number;
-  boosterLevels: BoosterLevels | null;
-  boosterNextPrices: BoosterNextPrices | null;
+  miningPointsPerSec: number;
+  boosters: BoosterListItem[] | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -106,6 +107,7 @@ export interface CommitRecord {
   at: number;
   delta: number;
   applied: number;
+  miningPointsApplied?: number;
   balance: number | undefined;
   ok: boolean;
   resyncRequired?: boolean;
@@ -120,7 +122,7 @@ export interface TapGameDebug {
 export interface UseTapGameReturn {
   state: TapGameState;
   handleTap: () => void;
-  /** Display score: serverBalance + localTapDelta (smooth, no jumps). */
+  /** Display score: serverBalance + localTapDelta * pointsMultiplier + mining since last commit. */
   score: number;
   /** Display energy: consumed on tap (server energy + regen − localTapDelta), capped to [0, energyMax]. */
   displayEnergy: number;
@@ -144,12 +146,11 @@ export function useTapGame(): UseTapGameReturn {
   const [sessionId, setSessionId] = useState<string | null>(stored?.sessionId ?? null);
   const [energy, setEnergy] = useState(1000);
   const [energyMax, setEnergyMax] = useState(1000);
-  const [energyRegenPerMin, setEnergyRegenPerMin] = useState(1);
+  const [energyRegenPerSec, setEnergyRegenPerSec] = useState(1 / 60);
   const [energyServerTime, setEnergyServerTime] = useState(0);
   const [pointsMultiplier, setPointsMultiplier] = useState(1);
-  const [autoTapsPerMin, setAutoTapsPerMin] = useState(0);
-  const [boosterLevels, setBoosterLevels] = useState<BoosterLevels | null>(null);
-  const [boosterNextPrices, setBoosterNextPrices] = useState<BoosterNextPrices | null>(null);
+  const [miningPointsPerSec, setMiningPointsPerSec] = useState(0);
+  const [boosters, setBoosters] = useState<BoosterListItem[] | null>(null);
   const [, setTick] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,6 @@ export function useTapGame(): UseTapGameReturn {
   const sessionIdRef = useRef<string | null>(null);
   const commitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitInFlightRef = useRef(false);
-  const commitAnchorRef = useRef<{ sentDelta: number } | null>(null);
   /** After applying a commit, stateRef is still stale; use this when scheduling from finally. */
   const pendingLocalTapDeltaAfterCommitRef = useRef<number | null>(null);
   /** When set, commitFromRefs must use this delta (from when we scheduled) instead of reading stateRef. */
@@ -177,13 +177,13 @@ export function useTapGame(): UseTapGameReturn {
   const energyRef = useRef({
     energy: 1000,
     energyMax: 1000,
-    energyRegenPerMin: 1,
+    energyRegenPerSec: 1 / 60,
     energyServerTime: 0,
   });
   energyRef.current = {
     energy,
     energyMax,
-    energyRegenPerMin,
+    energyRegenPerSec,
     energyServerTime,
   };
 
@@ -225,23 +225,22 @@ export function useTapGame(): UseTapGameReturn {
       last_seq: number;
       energy?: number;
       energy_max?: number;
-      energy_regen_per_min?: number;
+      energy_regen_per_sec?: number;
+      server_time?: number;
       points_multiplier?: number;
-      auto_taps_per_min?: number;
-      booster_levels?: BoosterLevels;
-      booster_next_prices?: BoosterNextPrices;
+      mining_points_per_sec?: number;
+      boosters?: BoosterListItem[];
     };
     setSessionId(data.session_id);
     setServerBalance(data.balance);
     setLastServerSeq(data.last_seq);
     if (typeof data.energy === "number") setEnergy(data.energy);
     if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
-    if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+    if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
     if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
-    if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
-    if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
-    if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
-    setEnergyServerTime(Date.now());
+    if (typeof data.mining_points_per_sec === "number") setMiningPointsPerSec(data.mining_points_per_sec);
+    if (Array.isArray(data.boosters)) setBoosters(data.boosters);
+    setEnergyServerTime(typeof data.server_time === "number" ? data.server_time : Date.now());
     seqRef.current = data.last_seq;
     const stored = getStoredState();
     if (stored?.sessionId === data.session_id && stored.localTapDelta > 0) {
@@ -271,12 +270,11 @@ export function useTapGame(): UseTapGameReturn {
       session_id: string;
       energy?: number;
       energy_max?: number;
-      energy_regen_per_min?: number;
+      energy_regen_per_sec?: number;
       server_time?: number;
       points_multiplier?: number;
-      auto_taps_per_min?: number;
-      booster_levels?: BoosterLevels;
-      booster_next_prices?: BoosterNextPrices;
+      mining_points_per_sec?: number;
+      boosters?: BoosterListItem[];
     };
     setServerBalance(data.balance);
     setLastServerSeq(data.last_seq);
@@ -285,13 +283,35 @@ export function useTapGame(): UseTapGameReturn {
     setLastCommitTime(Date.now());
     if (typeof data.energy === "number") setEnergy(data.energy);
     if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
-    if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+    if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
     if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
-    if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
-    if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
-    if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
+    if (typeof data.mining_points_per_sec === "number") setMiningPointsPerSec(data.mining_points_per_sec);
+    if (Array.isArray(data.boosters)) setBoosters(data.boosters);
     if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
     seqRef.current = data.last_seq;
+  }, [getToken]);
+
+  /** Fetches state but only updates energy-related fields (and boosters). Does not clear localTapDelta or other balance/session state. */
+  const fetchEnergyOnly = useCallback(async (): Promise<void> => {
+    const token = await getToken();
+    if (!token) return;
+    const base = getApiBase();
+    const res = await fetch(`${base}/api/v1/tap/state`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      energy?: number;
+      energy_max?: number;
+      energy_regen_per_sec?: number;
+      server_time?: number;
+      boosters?: BoosterListItem[];
+    };
+    if (typeof data.energy === "number") setEnergy(data.energy);
+    if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
+    if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
+    if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
+    if (Array.isArray(data.boosters)) setBoosters(data.boosters);
   }, [getToken]);
 
   const commitRef = useRef<
@@ -305,25 +325,26 @@ export function useTapGame(): UseTapGameReturn {
     if (commitInFlightRef.current) return;
     const scheduled = scheduledDeltaRef.current;
     if (scheduled !== null) scheduledDeltaRef.current = null;
-    const d = scheduled !== null ? scheduled : stateRef.current.localTapDelta;
+    const manual = stateRef.current.localTapDelta;
+    logTap("commitFromRefs firing", { delta: manual, lastCommitTime: stateRef.current.lastCommitTime, balanceAtSend: stateRef.current.serverBalance + manual * (pointsMultiplier ?? 1) });
+    if (manual <= 0) return;
     const { lastCommitTime: t, serverBalance: s } = stateRef.current;
-    const balanceAtSend = s + d;
-    logTap("commitFromRefs firing", { delta: d, lastCommitTime: t, balanceAtSend });
-    if (d > 0) void commitRef.current(d, t, balanceAtSend);
-  }, []);
+    const balanceAtSend = s + manual * (pointsMultiplier ?? 1);
+    void commitRef.current(manual, t, balanceAtSend);
+  }, [pointsMultiplier]);
 
   const scheduleNextBatchIfNeeded = useCallback(() => {
     if (commitInFlightRef.current || commitTimeoutRef.current != null) return;
     const pending = pendingLocalTapDeltaAfterCommitRef.current;
     if (pending !== null) pendingLocalTapDeltaAfterCommitRef.current = null;
-    const d = pending !== null ? pending : stateRef.current.localTapDelta;
-    if (d <= 0) return;
+    const manual = pending !== null ? pending : stateRef.current.localTapDelta;
+    if (manual <= 0) return;
     const t = stateRef.current.lastCommitTime;
     const now = Date.now();
     const timeElapsed = now - t;
     const delay = Math.max(0, COMMIT_INTERVAL_MS - timeElapsed);
-    logTap("scheduleNextBatchIfNeeded", { delay, localTapDelta: d });
-    scheduledDeltaRef.current = d;
+    logTap("scheduleNextBatchIfNeeded", { delay, localTapDelta: manual });
+    scheduledDeltaRef.current = manual;
     commitTimeoutRef.current = setTimeout(commitFromRefs, delay);
     if (IS_DEV) setDebugTimerScheduled(true);
   }, [commitFromRefs]);
@@ -341,7 +362,7 @@ export function useTapGame(): UseTapGameReturn {
       const seq = seqRef.current + 1;
       commitInFlightRef.current = true;
       if (IS_DEV) setDebugCommitInFlight(true);
-      commitAnchorRef.current = { sentDelta: delta };
+      // commitAnchorRef already set by commitFromRefs with sentManual/sentAuto when applicable
 
       logTap("commit sending", { delta, commitTime, balanceAtSend });
 
@@ -370,14 +391,14 @@ export function useTapGame(): UseTapGameReturn {
           ok: boolean;
           resync_required?: boolean;
           applied_taps?: number;
+          mining_points_applied?: number;
           balance?: number;
           energy?: number;
           energy_max?: number;
-          energy_regen_per_min?: number;
+          energy_regen_per_sec?: number;
           points_multiplier?: number;
-          auto_taps_per_min?: number;
-          booster_levels?: BoosterLevels;
-          booster_next_prices?: BoosterNextPrices;
+          mining_points_per_sec?: number;
+          boosters?: BoosterListItem[];
           server_time?: number;
           session_id?: string;
           last_seq?: number;
@@ -390,9 +411,6 @@ export function useTapGame(): UseTapGameReturn {
           balance: data.balance,
         });
 
-        const anchor = commitAnchorRef.current;
-        commitAnchorRef.current = null;
-
         if (IS_DEV) {
           setCommitHistory((h) =>
             [
@@ -400,7 +418,8 @@ export function useTapGame(): UseTapGameReturn {
               {
                 at: Date.now(),
                 delta,
-                applied: data.applied_taps ?? anchor?.sentDelta ?? delta,
+                applied: data.applied_taps ?? delta,
+                miningPointsApplied: data.mining_points_applied,
                 balance: data.balance,
                 ok: data.ok,
                 resyncRequired: data.resync_required,
@@ -427,22 +446,20 @@ export function useTapGame(): UseTapGameReturn {
           return;
         }
 
-        const applied = data.applied_taps ?? anchor?.sentDelta ?? delta;
+        const applied = data.applied_taps ?? delta;
         const localBefore = stateRef.current.localTapDelta;
-        // Clamp: if stateRef was zeroed while commit was in flight (e.g. by fetchState regen),
-        // avoid negative remaining and negative localTapDelta (would mis-display or double-schedule).
-        const remainingAfterApply = Math.max(0, localBefore - applied);
-        pendingLocalTapDeltaAfterCommitRef.current = remainingAfterApply;
+        const appliedManual = Math.min(applied, localBefore);
+        const remainingManual = Math.max(0, localBefore - appliedManual);
+        pendingLocalTapDeltaAfterCommitRef.current = remainingManual;
         if (data.balance != null) setServerBalance(data.balance);
         if (typeof data.energy === "number") setEnergy(data.energy);
         if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
-        if (typeof data.energy_regen_per_min === "number") setEnergyRegenPerMin(data.energy_regen_per_min);
+        if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
         if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
-        if (typeof data.auto_taps_per_min === "number") setAutoTapsPerMin(data.auto_taps_per_min);
-        if (data.booster_levels != null) setBoosterLevels(data.booster_levels);
-        if (data.booster_next_prices != null) setBoosterNextPrices(data.booster_next_prices);
+        if (typeof data.mining_points_per_sec === "number") setMiningPointsPerSec(data.mining_points_per_sec);
+        if (Array.isArray(data.boosters)) setBoosters(data.boosters);
         if (typeof data.server_time === "number") setEnergyServerTime(data.server_time);
-        setLocalTapDelta((d) => Math.max(0, d - applied));
+        setLocalTapDelta((d) => Math.max(0, d - appliedManual));
         setLastServerSeq(seq);
         if (data.session_id != null) setSessionId(data.session_id);
         if (data.last_seq != null) {
@@ -497,11 +514,11 @@ export function useTapGame(): UseTapGameReturn {
   );
 
   const handleTap = useCallback(() => {
-    const { energy: e, energyMax: max, energyRegenPerMin: regenPerMin, energyServerTime: t0 } =
+    const { energy: e, energyMax: max, energyRegenPerSec: regenPerSec, energyServerTime: t0 } =
       energyRef.current;
     const now = Date.now();
-    const elapsedMinutes = (now - t0) / 60_000;
-    const regen = Math.floor(elapsedMinutes * regenPerMin);
+    const elapsedSeconds = (now - t0) / 1000;
+    const regen = Math.floor(elapsedSeconds * regenPerSec);
     const effective = Math.min(max, e + regen);
     const available = effective - stateRef.current.localTapDelta;
     if (available <= 0) {
@@ -544,16 +561,17 @@ export function useTapGame(): UseTapGameReturn {
   const flushCommitOnUnloadRef = useRef((): void => {
     const token = tokenRef.current;
     const sid = sessionIdRef.current;
-    const { localTapDelta: d, lastCommitTime: t, serverBalance: s } = stateRef.current;
-    if (!token || !sid || d <= 0) return;
+    const { localTapDelta: manual, lastCommitTime: t, serverBalance: s } = stateRef.current;
+    if (!token || !sid || manual <= 0) return;
     const seq = seqRef.current + 1;
     const now = Date.now();
+    const mult = 1; // approximate; server will apply correct multiplier
     const body = JSON.stringify({
       session_id: sid,
       seq,
-      taps_delta: d,
+      taps_delta: manual,
       duration_ms: now - t,
-      client_balance_view: s + d,
+      client_balance_view: s + manual * mult,
       client_ts_start: t,
       client_ts_end: now,
     });
@@ -612,39 +630,35 @@ export function useTapGame(): UseTapGameReturn {
     return () => clearInterval(id);
   }, []);
 
-  // Auto-tap: when autoTapsPerMin > 0, fire handleTap at that rate (min interval 1s to avoid runaway)
-  const handleTapRef = useRef(handleTap);
-  handleTapRef.current = handleTap;
+  // Refetch energy from backend at next regen boundary so energy anchor is renewed. Does not clear localTapDelta.
+  // Cap frequency so we never refetch more often than MIN_STATE_REFETCH_INTERVAL_MS (avoids 1 req/s when regen is fast).
+  const MIN_STATE_REFETCH_INTERVAL_MS = 30_000;
+  const fetchEnergyOnlyRef = useRef(fetchEnergyOnly);
+  fetchEnergyOnlyRef.current = fetchEnergyOnly;
   useEffect(() => {
-    if (autoTapsPerMin <= 0) return;
-    const intervalMs = Math.max(1000, Math.floor(60_000 / autoTapsPerMin));
-    const id = setInterval(() => {
-      handleTapRef.current();
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [autoTapsPerMin]);
-
-
-  // Refetch state from backend at next regen boundary so energy value is renewed from server
-  const fetchStateRef = useRef(fetchState);
-  fetchStateRef.current = fetchState;
-  useEffect(() => {
-    if (!sessionId || energyServerTime <= 0 || energyRegenPerMin <= 0) return;
-    const msPerEnergy = 60_000 / energyRegenPerMin;
+    if (!sessionId || energyServerTime <= 0 || energyRegenPerSec <= 0) return;
+    const msPerEnergy = 1000 / energyRegenPerSec;
     const elapsed = Date.now() - energyServerTime;
     const nextBoundaryElapsed = (Math.floor(elapsed / msPerEnergy) + 1) * msPerEnergy;
-    const delay = nextBoundaryElapsed - elapsed;
+    const delayToBoundary = nextBoundaryElapsed - elapsed;
+    const delay = Math.max(MIN_STATE_REFETCH_INTERVAL_MS, Math.max(0, delayToBoundary));
     const timeout = setTimeout(() => {
-      fetchStateRef.current();
-    }, Math.max(0, delay));
+      fetchEnergyOnlyRef.current();
+    }, delay);
     return () => clearTimeout(timeout);
-  }, [sessionId, energyServerTime, energyRegenPerMin]);
+  }, [sessionId, energyServerTime, energyRegenPerSec, fetchEnergyOnly]);
 
   const now = Date.now();
-  const elapsedMinutes = (now - energyServerTime) / 60_000;
-  const regen = Math.floor(elapsedMinutes * energyRegenPerMin);
+  const elapsedSeconds = (now - energyServerTime) / 1000;
+  const regen = Math.floor(elapsedSeconds * energyRegenPerSec);
   const effectiveEnergy = Math.min(energyMax, energy + regen);
+  /** Only manual taps consume energy; mining does not. */
   const displayEnergy = Math.max(0, effectiveEnergy - localTapDelta);
+
+  const miningSinceLastCommit =
+    lastCommitTime > 0 && miningPointsPerSec > 0
+      ? Math.floor((now - lastCommitTime) / 1000 * miningPointsPerSec)
+      : 0;
 
   const refreshState = useCallback(async () => {
     await fetchState();
@@ -659,17 +673,16 @@ export function useTapGame(): UseTapGameReturn {
       sessionId,
       energy,
       energyMax,
-      energyRegenPerMin,
+      energyRegenPerSec,
       energyServerTime,
       pointsMultiplier,
-      autoTapsPerMin,
-      boosterLevels,
-      boosterNextPrices,
+      miningPointsPerSec,
+      boosters,
       isLoading,
       error,
     },
     handleTap,
-    score: serverBalance + localTapDelta,
+    score: serverBalance + localTapDelta * pointsMultiplier + miningSinceLastCommit,
     displayEnergy,
     refreshState,
     ...(IS_DEV && {

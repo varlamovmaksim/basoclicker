@@ -25,7 +25,7 @@ export function TapGame({
   score,
   displayEnergy,
   debug,
-  refreshState,
+  refreshState: _refreshState,
 }: TapGameProps): React.ReactElement {
   const [isPressing, setIsPressing] = useState(false);
   const activeTouchCountRef = useRef(0);
@@ -118,8 +118,6 @@ export function TapGame({
           score={score}
           displayEnergy={displayEnergy}
           debug={debug}
-          onRestoreEnergy={refreshState}
-          onRefreshState={refreshState}
         />
       )}
     </>

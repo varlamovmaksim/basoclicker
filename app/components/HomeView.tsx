@@ -117,7 +117,7 @@ export function HomeView(): React.ReactElement {
                   <div className="font-black text-slate-900">
                     {Math.floor(game.displayEnergy).toLocaleString("en-US")}
                     <span className="ml-1 font-extrabold text-slate-500">
-                      (+{game.tapState.energyRegenPerMin.toFixed(1)})
+                      (+{game.tapState.energyRegenPerSec.toFixed(2)}/s)
                     </span>
                     {" / "}
                     {game.tapState.energyMax.toLocaleString("en-US")}
@@ -139,10 +139,10 @@ export function HomeView(): React.ReactElement {
                 <div className="mt-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span aria-hidden>⏱️</span>
-                    <span className="font-black text-slate-900">Auto</span>
+                    <span className="font-black text-slate-900">Mining</span>
                   </div>
                   <div className="font-black text-slate-900">
-                    +{Math.floor(game.tapState.autoTapsPerMin / 60)}
+                    +{game.tapState.miningPointsPerSec}
                     <span className="ml-1 font-extrabold text-slate-500">/ sec</span>
                   </div>
                 </div>

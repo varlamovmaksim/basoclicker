@@ -1,15 +1,12 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import sdk from "@farcaster/miniapp-sdk";
 import type {
   TapGameState,
   TapGameDebug,
   CommitRecord,
 } from "../hooks/useTapGame";
 import styles from "./DevTapPanel.module.css";
-
-const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
 export interface DevTapPanelProps {
   state: TapGameState;
@@ -83,6 +80,12 @@ function CommitRow({ c, now }: { c: CommitRecord; now: number }): React.ReactEle
         <span className={styles.value}>{c.delta}</span>
         <span>applied</span>
         <span className={styles.value}>{c.applied}</span>
+        {c.miningPointsApplied != null && (
+          <>
+            <span>mining</span>
+            <span className={styles.value}>{c.miningPointsApplied}</span>
+          </>
+        )}
         <span>balance</span>
         <span className={styles.value}>{c.balance ?? "—"}</span>
         <span>ok</span>
@@ -93,11 +96,6 @@ function CommitRow({ c, now }: { c: CommitRecord; now: number }): React.ReactEle
       </div>
     </div>
   );
-}
-
-function getApiBase(): string {
-  if (typeof window === "undefined") return "";
-  return window.location.origin;
 }
 
 export function DevTapPanel({
@@ -224,15 +222,25 @@ export function DevTapPanel({
             </div>
             <div className={styles.row}>
               <span className={styles.key}>regen</span>
-              <span className={styles.value}>{state.energyRegenPerMin}/min</span>
+              <span className={styles.value}>{state.energyRegenPerSec.toFixed(3)}/sec</span>
             </div>
             <div className={styles.row}>
               <span className={styles.key}>points</span>
               <span className={styles.value}>{state.pointsMultiplier.toFixed(2)}x</span>
             </div>
             <div className={styles.row}>
-              <span className={styles.key}>auto taps</span>
-              <span className={styles.value}>{state.autoTapsPerMin}/min</span>
+              <span className={styles.key}>mining pts/sec</span>
+              <span className={styles.value}>
+                {state.miningPointsPerSec.toFixed(3)}
+              </span>
+            </div>
+            <div className={styles.row}>
+              <span className={styles.key}>mining pts (last commit)</span>
+              <span className={styles.value}>
+                {history.length > 0 && history[history.length - 1]?.miningPointsApplied != null
+                  ? history[history.length - 1].miningPointsApplied
+                  : "—"}
+              </span>
             </div>
           </div>
           <div className={styles.section}>
@@ -267,43 +275,28 @@ export function DevTapPanel({
         {showBoosters && (
           <div className={styles.section}>
             <div className={styles.sectionTitle}>Boosters</div>
-            {[
-            {
-              key: "points" as const,
-              label: "Points",
-              effect: (l: number) => `${(1 + l * 0.25).toFixed(2)}x`,
-            },
-            {
-              key: "energy_max" as const,
-              label: "Energy max",
-              effect: (l: number) => `+${l * 100}`,
-            },
-            {
-              key: "energy_regen" as const,
-              label: "Energy regen",
-              effect: (l: number) => `+${(l * 0.5).toFixed(1)}/min`,
-            },
-            {
-              key: "auto_taps" as const,
-              label: "Auto taps",
-              effect: (l: number) => `${l * 5}/min`,
-            },
-            ].map(({ key, label, effect }) => {
-            const level = state.boosterLevels?.[key] ?? 0;
-            const nextPrice = state.boosterNextPrices?.[key] ?? "—";
-            return (
-              <div key={key} className={styles.boosterRow}>
-                <div className={styles.row}>
-                  <span className={styles.key}>{label}</span>
-                  <span className={styles.value}>Lv {level}</span>
-                  <span className={styles.key}>effect</span>
-                  <span className={styles.value}>{effect(level)}</span>
-                  <span className={styles.key}>next</span>
-                  <span className={styles.value}>{nextPrice}</span>
+            {(state.boosters ?? []).map((b) => {
+              const effectStr =
+                b.type === "points_per_tap"
+                  ? `${(1 + b.count * b.effect_amount).toFixed(2)}x`
+                  : b.type === "energy_regen"
+                    ? `+${(b.count * b.effect_amount).toFixed(1)}/min`
+                    : b.type === "auto_points"
+                      ? `${b.count * b.effect_amount}/min`
+                      : "—";
+              return (
+                <div key={b.id} className={styles.boosterRow}>
+                  <div className={styles.row}>
+                    <span className={styles.key}>{b.name}</span>
+                    <span className={styles.value}>Lv {b.count}</span>
+                    <span className={styles.key}>effect</span>
+                    <span className={styles.value}>{effectStr}</span>
+                    <span className={styles.key}>next</span>
+                    <span className={styles.value}>{b.next_price}</span>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
         )}
 

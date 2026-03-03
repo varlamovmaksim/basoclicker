@@ -22,6 +22,27 @@
       "when": 1772115528705,
       "tag": "0002_illegal_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1772440426257,
+      "tag": "0003_boosters_rework",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772500000000,
+      "tag": "0004_energy_regen_per_sec",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772600000000,
+      "tag": "0005_booster_max_level_and_effect",
+      "breakpoints": true
     }
   ]
 }
