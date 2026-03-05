@@ -20,10 +20,15 @@ function parseTapCommitBody(body: unknown): TapCommitRequest | null {
   ) {
     return null;
   }
+  const points_delta =
+    typeof o.points_delta === "number" && Number.isInteger(o.points_delta)
+      ? o.points_delta
+      : undefined;
   return {
     session_id,
     seq,
     taps_delta,
+    points_delta,
     duration_ms: typeof duration_ms === "number" ? duration_ms : 0,
     client_balance_view:
       typeof o.client_balance_view === "number" ? o.client_balance_view : undefined,

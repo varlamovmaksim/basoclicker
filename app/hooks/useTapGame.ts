@@ -135,7 +135,7 @@ export interface TapGameDebug {
 export interface UseTapGameReturn {
   state: TapGameState;
   handleTap: () => void;
-  /** Display score: serverBalance + localTapDelta * pointsMultiplier + mining since last commit. */
+  /** Display score: serverBalance + localTapDelta * pointsMultiplier + mining since last commit, minus optimistic purchase deduction. */
   score: number;
   /** Display energy: consumed on tap (server energy + regen − localTapDelta), capped to [0, energyMax]. */
   displayEnergy: number;
@@ -143,6 +143,10 @@ export interface UseTapGameReturn {
   debug?: TapGameDebug;
   /** Refetch state from server (e.g. after restore energy or booster purchase). */
   refreshState: () => Promise<void>;
+  /** Subtract amount from displayed score until revert or refresh (e.g. before booster purchase). */
+  applyOptimisticPurchaseDeduction: (amount: number) => void;
+  /** Restore amount to displayed score (e.g. when purchase fails). */
+  revertOptimisticPurchaseDeduction: (amount: number) => void;
 }
 
 function getInitialStoredState(): StoredTapState | null {
@@ -167,6 +171,7 @@ export function useTapGame(): UseTapGameReturn {
   const [pointsMultiplier, setPointsMultiplier] = useState(1);
   const [miningPointsPerSec, setMiningPointsPerSec] = useState(0);
   const [boosters, setBoosters] = useState<BoosterListItem[] | null>(null);
+  const [pendingPurchaseDeduction, setPendingPurchaseDeduction] = useState(0);
   const [, setTick] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,6 +184,8 @@ export function useTapGame(): UseTapGameReturn {
   const pendingLocalTapDeltaAfterCommitRef = useRef<number | null>(null);
   /** When set, commitFromRefs must use this delta (from when we scheduled) instead of reading stateRef. */
   const scheduledDeltaRef = useRef<number | null>(null);
+  /** Fractional points not yet sent to server; carried into next commit so we commit integer points without losing decimals. */
+  const pointsRemainderRef = useRef(0);
   const [debugCommitInFlight, setDebugCommitInFlight] = useState(false);
   const [debugTimerScheduled, setDebugTimerScheduled] = useState(false);
   const [commitHistory, setCommitHistory] = useState<CommitRecord[]>([]);
@@ -302,6 +309,7 @@ export function useTapGame(): UseTapGameReturn {
     setSessionId(data.session_id || null);
     setLocalTapDelta(0);
     setLastCommitTime(Date.now());
+    pointsRemainderRef.current = 0;
     // Ensure displayed score never ниже server balance.
     setClientScore((prev) => Math.max(prev, data.balance));
     if (typeof data.energy === "number") setEnergy(data.energy);
@@ -338,7 +346,12 @@ export function useTapGame(): UseTapGameReturn {
   }, [getToken]);
 
   const commitRef = useRef<
-    (delta: number, commitTime: number, balanceAtSend: number) => Promise<void>
+    (
+      delta: number,
+      commitTime: number,
+      balanceAtSend: number,
+      pointsDelta: number
+    ) => Promise<void>
   >(() => Promise.resolve());
   const scheduleNextBatchIfNeededRef = useRef<() => void>(() => {});
 
@@ -348,19 +361,29 @@ export function useTapGame(): UseTapGameReturn {
     if (commitInFlightRef.current) return;
     const scheduled = scheduledDeltaRef.current;
     if (scheduled !== null) scheduledDeltaRef.current = null;
-    const manual = stateRef.current.localTapDelta;
+    // Use scheduled delta when set (from scheduleNextBatchIfNeeded after a commit).
+    // Otherwise stateRef may still hold pre-commit localTapDelta before React has flushed setState.
+    const manual =
+      scheduled !== null ? scheduled : stateRef.current.localTapDelta;
     const multiplierAtSend = pointsMultiplier ?? 1;
+    const pointsThisBatch =
+      manual * multiplierAtSend + pointsRemainderRef.current;
+    const pointsDelta = Math.floor(pointsThisBatch);
+    pointsRemainderRef.current = pointsThisBatch - pointsDelta;
     const balanceAtSend = Math.floor(
       stateRef.current.serverBalance + manual * multiplierAtSend
     );
     logTap("commitFromRefs firing", {
       delta: manual,
+      pointsThisBatch,
+      pointsDelta,
+      pointsRemainder: pointsRemainderRef.current,
       lastCommitTime: stateRef.current.lastCommitTime,
       balanceAtSend,
     });
     if (manual <= 0) return;
     const { lastCommitTime: t } = stateRef.current;
-    void commitRef.current(manual, t, balanceAtSend);
+    void commitRef.current(manual, t, balanceAtSend, pointsDelta);
   }, [pointsMultiplier]);
 
   const scheduleNextBatchIfNeeded = useCallback(() => {
@@ -391,7 +414,8 @@ export function useTapGame(): UseTapGameReturn {
     async (
       delta: number,
       commitTime: number,
-      balanceAtSend: number
+      balanceAtSend: number,
+      pointsDelta: number
     ): Promise<void> => {
       const token = await getToken();
       tokenRef.current = token ?? null;
@@ -402,7 +426,7 @@ export function useTapGame(): UseTapGameReturn {
       if (IS_DEV) setDebugCommitInFlight(true);
       // commitAnchorRef already set by commitFromRefs with sentManual/sentAuto when applicable
 
-      logTap("commit sending", { delta, commitTime, balanceAtSend });
+      logTap("commit sending", { delta, commitTime, balanceAtSend, pointsDelta });
 
       seqRef.current = seq;
 
@@ -418,6 +442,7 @@ export function useTapGame(): UseTapGameReturn {
             session_id: sessionId,
             seq,
             taps_delta: delta,
+            points_delta: pointsDelta,
             duration_ms: Date.now() - commitTime,
             client_balance_view: balanceAtSend,
             client_ts_start: commitTime,
@@ -489,6 +514,7 @@ export function useTapGame(): UseTapGameReturn {
         const appliedManual = Math.min(applied, localBefore);
         const remainingManual = Math.max(0, localBefore - appliedManual);
         pendingLocalTapDeltaAfterCommitRef.current = remainingManual;
+
         if (typeof data.balance === "number") {
           setServerBalance(data.balance);
           setClientScore((s) => Math.max(s, data.balance as number));
@@ -726,7 +752,17 @@ export function useTapGame(): UseTapGameReturn {
     await fetchState();
   }, [fetchState]);
 
-  const score = clientScore;
+  const applyOptimisticPurchaseDeduction = useCallback((amount: number) => {
+    if (amount <= 0) return;
+    setPendingPurchaseDeduction((prev) => prev + amount);
+  }, []);
+
+  const revertOptimisticPurchaseDeduction = useCallback((amount: number) => {
+    if (amount <= 0) return;
+    setPendingPurchaseDeduction((prev) => Math.max(0, prev - amount));
+  }, []);
+
+  const score = Math.max(0, clientScore - pendingPurchaseDeduction);
   return {
     state: {
       serverBalance,
@@ -749,6 +785,8 @@ export function useTapGame(): UseTapGameReturn {
     score,
     displayEnergy,
     refreshState,
+    applyOptimisticPurchaseDeduction,
+    revertOptimisticPurchaseDeduction,
     ...(IS_DEV && {
       debug: {
         commitInFlight: debugCommitInFlight,

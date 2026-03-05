@@ -66,6 +66,8 @@ export interface UseBasoGameReturn {
   tapState: ReturnType<typeof useTapGame>["state"];
   debug: ReturnType<typeof useTapGame>["debug"];
   refreshState: () => Promise<void>;
+  applyOptimisticPurchaseDeduction: (amount: number) => void;
+  revertOptimisticPurchaseDeduction: (amount: number) => void;
   donutColor: string;
 }
 
@@ -96,7 +98,16 @@ function savePersisted(data: BasoPersisted): void {
 }
 
 export function useBasoGame(): UseBasoGameReturn {
-  const { state, handleTap, score, displayEnergy, debug, refreshState } = useTapGame();
+  const {
+    state,
+    handleTap,
+    score,
+    displayEnergy,
+    debug,
+    refreshState,
+    applyOptimisticPurchaseDeduction,
+    revertOptimisticPurchaseDeduction,
+  } = useTapGame();
 
   const [tab, setTab] = useState<BasoTabKey>("home");
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
@@ -367,6 +378,8 @@ export function useBasoGame(): UseBasoGameReturn {
     tapState: state,
     debug,
     refreshState,
+    applyOptimisticPurchaseDeduction,
+    revertOptimisticPurchaseDeduction,
   };
 }
 

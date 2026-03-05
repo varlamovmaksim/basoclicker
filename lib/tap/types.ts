@@ -4,6 +4,8 @@ export interface TapCommitRequest {
   seq: number;
   /** Manual taps only; mining is applied server-side from idle time. */
   taps_delta: number;
+  /** Optional integer points to add (client sends floor of fractional accumulation); when set, server uses this instead of floor(taps_delta * multiplier). */
+  points_delta?: number;
   duration_ms: number;
   client_balance_view?: number;
   client_ts_start?: number;

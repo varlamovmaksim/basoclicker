@@ -182,6 +182,8 @@ export function HomeView(): React.ReactElement {
                 state={game.tapState}
                 score={game.score}
                 refreshState={game.refreshState}
+                applyOptimisticPurchaseDeduction={game.applyOptimisticPurchaseDeduction}
+                revertOptimisticPurchaseDeduction={game.revertOptimisticPurchaseDeduction}
                 skinStageClass={game.skinStageClass}
                 setSkin={game.setSkin}
               />

@@ -238,8 +238,18 @@ export async function commitTaps(
       stats.miningPointsPerSec
     );
     const effectiveManual = Math.min(requested, currentEnergy);
+    const manualPointsRaw = effectiveManual * stats.pointsMultiplier;
+    const serverFloorPoints = Math.floor(manualPointsRaw);
+    const pointsFromClient =
+      typeof body.points_delta === "number" && body.points_delta >= 0
+        ? Math.min(
+            body.points_delta,
+            serverFloorPoints + 1
+          )
+        : null;
     const balanceDelta =
-      Math.floor(effectiveManual * stats.pointsMultiplier) + idleMiningPoints;
+      (pointsFromClient !== null ? pointsFromClient : serverFloorPoints) +
+      idleMiningPoints;
     const newEnergy = currentEnergy - effectiveManual;
     const newBalance = currentUser.balance + balanceDelta;
 

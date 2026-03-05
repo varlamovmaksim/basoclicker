@@ -13,6 +13,8 @@ export interface ShopViewProps {
   state: TapGameState;
   score: number;
   refreshState: () => Promise<void>;
+  applyOptimisticPurchaseDeduction: (amount: number) => void;
+  revertOptimisticPurchaseDeduction: (amount: number) => void;
   skinStageClass: string;
   setSkin: (id: string) => void;
 }
@@ -124,6 +126,8 @@ export function ShopView({
   state,
   score,
   refreshState,
+  applyOptimisticPurchaseDeduction,
+  revertOptimisticPurchaseDeduction,
   skinStageClass,
   setSkin,
 }: ShopViewProps): React.ReactElement {
@@ -138,8 +142,15 @@ export function ShopView({
         setMessage("Not signed in");
         return;
       }
+      const booster = (state.boosters ?? []).find((b) => b.id === boosterId);
+      const price = booster?.next_price ?? 0;
+      if (price <= 0) {
+        setMessage("Invalid booster");
+        return;
+      }
       setPurchasingId(boosterId);
       setMessage(null);
+      applyOptimisticPurchaseDeduction(price);
       try {
         const res = await fetch(`${getApiBase()}/api/v1/boosters/purchase`, {
           method: "POST",
@@ -157,22 +168,32 @@ export function ShopView({
         };
         if (data.ok && Array.isArray(data.boosters)) {
           await refreshState();
-        } else if (data.reason === "insufficient_balance") {
-          setMessage("Not enough points");
-        } else if (data.reason === "booster_locked") {
-          setMessage("Unlock previous booster first");
-        } else if (data.reason === "booster_max_level") {
-          setMessage("Max level reached");
+          revertOptimisticPurchaseDeduction(price);
         } else {
-          setMessage("Purchase failed");
+          revertOptimisticPurchaseDeduction(price);
+          if (data.reason === "insufficient_balance") {
+            setMessage("Not enough points");
+          } else if (data.reason === "booster_locked") {
+            setMessage("Unlock previous booster first");
+          } else if (data.reason === "booster_max_level") {
+            setMessage("Max level reached");
+          } else {
+            setMessage("Purchase failed");
+          }
         }
       } catch {
+        revertOptimisticPurchaseDeduction(price);
         setMessage("Request failed");
       } finally {
         setPurchasingId(null);
       }
     },
-    [refreshState]
+    [
+      state.boosters,
+      refreshState,
+      applyOptimisticPurchaseDeduction,
+      revertOptimisticPurchaseDeduction,
+    ]
   );
 
   if (state.isLoading) {
