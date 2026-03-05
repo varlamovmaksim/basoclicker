@@ -23,6 +23,7 @@ export interface UseBasoGameReturn {
 
   score: number;
   displayEnergy: number;
+  displayMining: number;
 
   donutProgress: number;
   eatTick: number;
@@ -103,6 +104,7 @@ export function useBasoGame(): UseBasoGameReturn {
     handleTap,
     score,
     displayEnergy,
+    displayMining,
     debug,
     refreshState,
     applyOptimisticPurchaseDeduction,
@@ -334,6 +336,7 @@ export function useBasoGame(): UseBasoGameReturn {
 
     score,
     displayEnergy,
+    displayMining,
 
     donutProgress,
     eatTick,

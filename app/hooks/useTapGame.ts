@@ -139,6 +139,8 @@ export interface UseTapGameReturn {
   score: number;
   /** Display energy: consumed on tap (server energy + regen − localTapDelta), capped to [0, energyMax]. */
   displayEnergy: number;
+  /** Display mining: optimistic points accumulated since last commit (synced on commit or ~1/min refetch). */
+  displayMining: number;
   /** Only present when NEXT_PUBLIC_IS_DEV === "true". */
   debug?: TapGameDebug;
   /** Refetch state from server (e.g. after restore energy or booster purchase). */
@@ -310,8 +312,8 @@ export function useTapGame(): UseTapGameReturn {
     setLocalTapDelta(0);
     setLastCommitTime(Date.now());
     pointsRemainderRef.current = 0;
-    // Ensure displayed score never ниже server balance.
-    setClientScore((prev) => Math.max(prev, data.balance));
+    // Full sync: server is source of truth; accept server balance so purchases/commits are reflected.
+    setClientScore(data.balance);
     if (typeof data.energy === "number") setEnergy(data.energy);
     if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
     if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
@@ -748,6 +750,13 @@ export function useTapGame(): UseTapGameReturn {
   /** Only manual taps consume energy; mining does not. */
   const displayEnergy = Math.max(0, effectiveEnergy - localTapDelta);
 
+  /** Optimistic mining pts since last commit; synced on commit (resets) and on ~1/min fetch (mining_points_per_sec). */
+  const miningElapsedSec = lastCommitTime > 0 ? (now - lastCommitTime) / 1000 : 0;
+  const displayMining =
+    miningPointsPerSec > 0 && miningElapsedSec > 0
+      ? Math.floor(miningElapsedSec * miningPointsPerSec)
+      : 0;
+
   const refreshState = useCallback(async () => {
     await fetchState();
   }, [fetchState]);
@@ -762,7 +771,7 @@ export function useTapGame(): UseTapGameReturn {
     setPendingPurchaseDeduction((prev) => Math.max(0, prev - amount));
   }, []);
 
-  const score = Math.max(0, clientScore - pendingPurchaseDeduction);
+  const score = Math.max(0, clientScore + displayMining - pendingPurchaseDeduction);
   return {
     state: {
       serverBalance,
@@ -784,6 +793,7 @@ export function useTapGame(): UseTapGameReturn {
     handleTap,
     score,
     displayEnergy,
+    displayMining,
     refreshState,
     applyOptimisticPurchaseDeduction,
     revertOptimisticPurchaseDeduction,

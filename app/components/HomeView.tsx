@@ -142,8 +142,10 @@ export function HomeView(): React.ReactElement {
                     <span className="font-black text-slate-900">Mining</span>
                   </div>
                   <div className="font-black text-slate-900">
-                    +{Math.floor(game.tapState.miningPointsPerSec)}
-                    <span className="ml-1 font-extrabold text-slate-500">/ sec</span>
+                    {game.displayMining.toLocaleString("en-US")}
+                    <span className="ml-1 font-extrabold text-slate-500">
+                      (+{game.tapState.miningPointsPerSec.toFixed(2)}/s)
+                    </span>
                   </div>
                 </div>
               </Card>
