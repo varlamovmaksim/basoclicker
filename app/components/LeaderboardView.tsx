@@ -50,7 +50,7 @@ export function LeaderboardView({
               </span>
             </div>
             <div className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black text-amber-800">
-              🍩 {formatCompact(score)}
+              🍩 {formatCompact(Math.floor(score))}
             </div>
           </div>
         </div>
@@ -77,7 +77,7 @@ export function LeaderboardView({
                 </div>
               </div>
               <div className="text-sm font-black text-slate-900">
-                {formatCompact(x.score)}
+                {formatCompact(Math.floor(x.score))}
               </div>
             </div>
           ))}

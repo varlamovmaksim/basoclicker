@@ -2,22 +2,13 @@ import {
   bigint,
   decimal,
   integer,
-  pgEnum,
   primaryKey,
   pgTable,
-  serial,
   timestamp,
   uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-
-export const abuseLevelEnum = pgEnum("abuse_level", [
-  "none",
-  "low",
-  "medium",
-  "high",
-]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -83,20 +74,4 @@ export const sessions = pgTable("sessions", {
     .defaultNow(),
   deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
   commitCount: bigint("commit_count", { mode: "number" }).notNull().default(0),
-});
-
-export const tapCommits = pgTable("tap_commits", {
-  id: serial("id").primaryKey(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  sessionId: uuid("session_id").notNull(),
-  seq: bigint("seq", { mode: "number" }).notNull(),
-  requestedTaps: bigint("requested_taps", { mode: "number" }).notNull(),
-  appliedTaps: bigint("applied_taps", { mode: "number" }).notNull(),
-  maxAllowed: bigint("max_allowed", { mode: "number" }).notNull(),
-  ratio: decimal("ratio", { precision: 10, scale: 4 }),
-  abuseLevel: abuseLevelEnum("abuse_level"),
-  serverTime: timestamp("server_time", { withTimezone: true }).notNull(),
-  clientDurationMs: bigint("client_duration_ms", { mode: "number" }),
 });

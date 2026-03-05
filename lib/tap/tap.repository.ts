@@ -3,7 +3,6 @@ import { db } from "@/lib/db/client";
 import {
   boosters as boostersTable,
   sessions as sessionsTable,
-  tapCommits,
   userBoosterPurchases as userBoosterPurchasesTable,
   users as usersTable,
 } from "@/lib/db/schema";
@@ -295,19 +294,6 @@ export async function createSession(
   };
 }
 
-export interface TapCommitInsert {
-  userId: string;
-  sessionId: string;
-  seq: number;
-  requestedTaps: number;
-  appliedTaps: number;
-  maxAllowed: number;
-  ratio: string | null;
-  abuseLevel: AbuseLevel | null;
-  serverTime: Date;
-  clientDurationMs: number | null;
-}
-
 export async function setUserEnergy(
   userId: string,
   energy: number,
@@ -322,25 +308,6 @@ export async function setUserEnergy(
       lastEnergyAt,
     })
     .where(eq(usersTable.id, userId));
-}
-
-export async function insertTapCommit(
-  data: TapCommitInsert,
-  client?: DbClient | unknown
-): Promise<void> {
-  const c = withClient(client);
-  await c.insert(tapCommits).values({
-    userId: data.userId,
-    sessionId: data.sessionId,
-    seq: data.seq,
-    requestedTaps: data.requestedTaps,
-    appliedTaps: data.appliedTaps,
-    maxAllowed: data.maxAllowed,
-    ratio: data.ratio,
-    abuseLevel: data.abuseLevel,
-    serverTime: data.serverTime,
-    clientDurationMs: data.clientDurationMs,
-  });
 }
 
 export async function updateUserAfterCommit(

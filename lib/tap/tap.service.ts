@@ -9,7 +9,6 @@ import {
   getUserByFid,
   getUserById,
   incrementSessionCommitCount,
-  insertTapCommit,
   purchaseBooster as repoPurchaseBooster,
   setUserEnergy,
   updateUserAfterCommit,
@@ -251,21 +250,6 @@ export async function commitTaps(
       serverNow,
       serverNow,
       body.seq,
-      tx
-    );
-    await insertTapCommit(
-      {
-        userId: user.id,
-        sessionId: body.session_id,
-        seq: body.seq,
-        requestedTaps: requested,
-        appliedTaps: effectiveManual,
-        maxAllowed: effectiveManual,
-        ratio: null,
-        abuseLevel: null,
-        serverTime: serverNow,
-        clientDurationMs: body.duration_ms ?? null,
-      },
       tx
     );
     await incrementSessionCommitCount(body.session_id, tx);

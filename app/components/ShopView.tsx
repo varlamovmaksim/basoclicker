@@ -227,7 +227,7 @@ export function ShopView({
         <>
           <div className="flex justify-center py-1">
             <div className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-lg font-black text-slate-900 shadow-sm">
-              🍩 {formatCompact(score)}
+              🍩 {formatCompact(Math.floor(score))}
             </div>
           </div>
 

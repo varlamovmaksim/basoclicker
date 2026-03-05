@@ -61,7 +61,7 @@ export function HomeView(): React.ReactElement {
                   🍩
                 </button>
                 <div className="text-[54px] font-black tracking-tight text-slate-900 leading-none">
-                  {formatCompact(game.score)}
+                  {formatCompact(Math.floor(game.score))}
                 </div>
               </div>
             </div>
@@ -142,7 +142,7 @@ export function HomeView(): React.ReactElement {
                     <span className="font-black text-slate-900">Mining</span>
                   </div>
                   <div className="font-black text-slate-900">
-                    +{game.tapState.miningPointsPerSec}
+                    +{Math.floor(game.tapState.miningPointsPerSec)}
                     <span className="ml-1 font-extrabold text-slate-500">/ sec</span>
                   </div>
                 </div>

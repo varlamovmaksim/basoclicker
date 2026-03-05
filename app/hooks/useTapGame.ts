@@ -17,6 +17,8 @@ interface StoredTapState {
   sessionId: string | null;
   localTapDelta: number;
   lastCommitTime: number;
+  /** Client-side virtual score that accumulates fractional points. */
+  clientScore: number;
 }
 
 function getStoredState(): StoredTapState | null {
@@ -24,7 +26,9 @@ function getStoredState(): StoredTapState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredTapState;
+    const parsed = JSON.parse(raw) as Partial<StoredTapState> & {
+      fractionalRemainder?: number;
+    };
     if (
       typeof parsed.serverBalance !== "number" ||
       typeof parsed.lastServerSeq !== "number" ||
@@ -39,6 +43,13 @@ function getStoredState(): StoredTapState | null {
       sessionId: parsed.sessionId ?? null,
       localTapDelta: Math.max(0, parsed.localTapDelta),
       lastCommitTime: parsed.lastCommitTime,
+      clientScore:
+        typeof parsed.clientScore === "number"
+          ? parsed.clientScore
+          : parsed.serverBalance +
+            (typeof parsed.fractionalRemainder === "number"
+              ? parsed.fractionalRemainder
+              : 0),
     };
   } catch {
     return null;
@@ -98,6 +109,8 @@ export interface TapGameState {
   energyServerTime: number;
   pointsMultiplier: number;
   miningPointsPerSec: number;
+  /** Client-side virtual score for display (may include fractional part). */
+  clientScore: number;
   boosters: BoosterListItem[] | null;
   isLoading: boolean;
   error: string | null;
@@ -144,9 +157,12 @@ export function useTapGame(): UseTapGameReturn {
   const [lastServerSeq, setLastServerSeq] = useState(stored?.lastServerSeq ?? 0);
   const [lastCommitTime, setLastCommitTime] = useState(stored?.lastCommitTime ?? 0);
   const [sessionId, setSessionId] = useState<string | null>(stored?.sessionId ?? null);
+  const [clientScore, setClientScore] = useState(
+    stored?.clientScore ?? stored?.serverBalance ?? 0
+  );
   const [energy, setEnergy] = useState(1000);
   const [energyMax, setEnergyMax] = useState(1000);
-  const [energyRegenPerSec, setEnergyRegenPerSec] = useState(1 / 60);
+  const [energyRegenPerSec, setEnergyRegenPerSec] = useState(1);
   const [energyServerTime, setEnergyServerTime] = useState(0);
   const [pointsMultiplier, setPointsMultiplier] = useState(1);
   const [miningPointsPerSec, setMiningPointsPerSec] = useState(0);
@@ -177,7 +193,7 @@ export function useTapGame(): UseTapGameReturn {
   const energyRef = useRef({
     energy: 1000,
     energyMax: 1000,
-    energyRegenPerSec: 1 / 60,
+    energyRegenPerSec: 1,
     energyServerTime: 0,
   });
   energyRef.current = {
@@ -246,10 +262,15 @@ export function useTapGame(): UseTapGameReturn {
     if (stored?.sessionId === data.session_id && stored.localTapDelta > 0) {
       setLocalTapDelta(stored.localTapDelta);
       setLastCommitTime(stored.lastCommitTime);
-      logTap("fetchSession restored uncommitted", { localTapDelta: stored.localTapDelta });
+      setClientScore(stored.clientScore);
+      logTap("fetchSession restored uncommitted", {
+        localTapDelta: stored.localTapDelta,
+        clientScore: stored.clientScore,
+      });
     } else {
       setLocalTapDelta(0);
       setLastCommitTime(Date.now());
+      setClientScore(data.balance);
     }
     setError(null);
     logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
@@ -281,6 +302,8 @@ export function useTapGame(): UseTapGameReturn {
     setSessionId(data.session_id || null);
     setLocalTapDelta(0);
     setLastCommitTime(Date.now());
+    // Ensure displayed score never ниже server balance.
+    setClientScore((prev) => Math.max(prev, data.balance));
     if (typeof data.energy === "number") setEnergy(data.energy);
     if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
     if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
@@ -326,15 +349,26 @@ export function useTapGame(): UseTapGameReturn {
     const scheduled = scheduledDeltaRef.current;
     if (scheduled !== null) scheduledDeltaRef.current = null;
     const manual = stateRef.current.localTapDelta;
-    logTap("commitFromRefs firing", { delta: manual, lastCommitTime: stateRef.current.lastCommitTime, balanceAtSend: stateRef.current.serverBalance + manual * (pointsMultiplier ?? 1) });
+    const multiplierAtSend = pointsMultiplier ?? 1;
+    const balanceAtSend = Math.floor(
+      stateRef.current.serverBalance + manual * multiplierAtSend
+    );
+    logTap("commitFromRefs firing", {
+      delta: manual,
+      lastCommitTime: stateRef.current.lastCommitTime,
+      balanceAtSend,
+    });
     if (manual <= 0) return;
-    const { lastCommitTime: t, serverBalance: s } = stateRef.current;
-    const balanceAtSend = s + manual * (pointsMultiplier ?? 1);
+    const { lastCommitTime: t } = stateRef.current;
     void commitRef.current(manual, t, balanceAtSend);
   }, [pointsMultiplier]);
 
   const scheduleNextBatchIfNeeded = useCallback(() => {
     if (commitInFlightRef.current || commitTimeoutRef.current != null) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      logTap("scheduleNextBatchIfNeeded: skip (offline)");
+      return;
+    }
     const pending = pendingLocalTapDeltaAfterCommitRef.current;
     if (pending !== null) pendingLocalTapDeltaAfterCommitRef.current = null;
     const manual = pending !== null ? pending : stateRef.current.localTapDelta;
@@ -354,7 +388,11 @@ export function useTapGame(): UseTapGameReturn {
   }, [scheduleNextBatchIfNeeded]);
 
   const commit = useCallback(
-    async (delta: number, commitTime: number, balanceAtSend: number): Promise<void> => {
+    async (
+      delta: number,
+      commitTime: number,
+      balanceAtSend: number
+    ): Promise<void> => {
       const token = await getToken();
       tokenRef.current = token ?? null;
       if (!token || !sessionId || delta <= 0) return;
@@ -451,7 +489,10 @@ export function useTapGame(): UseTapGameReturn {
         const appliedManual = Math.min(applied, localBefore);
         const remainingManual = Math.max(0, localBefore - appliedManual);
         pendingLocalTapDeltaAfterCommitRef.current = remainingManual;
-        if (data.balance != null) setServerBalance(data.balance);
+        if (typeof data.balance === "number") {
+          setServerBalance(data.balance);
+          setClientScore((s) => Math.max(s, data.balance as number));
+        }
         if (typeof data.energy === "number") setEnergy(data.energy);
         if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
         if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
@@ -492,8 +533,14 @@ export function useTapGame(): UseTapGameReturn {
     (delta: number) => {
       const inFlight = commitInFlightRef.current;
       const hasExistingTimeout = commitTimeoutRef.current != null;
-      if (delta <= 0 || inFlight || hasExistingTimeout) {
-        logTap("checkCommitTrigger skip", { delta, inFlight, hasExistingTimeout });
+      const isOffline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (delta <= 0 || inFlight || hasExistingTimeout || isOffline) {
+        logTap("checkCommitTrigger skip", {
+          delta,
+          inFlight,
+          hasExistingTimeout,
+          isOffline,
+        });
         return;
       }
       const now = Date.now();
@@ -531,7 +578,8 @@ export function useTapGame(): UseTapGameReturn {
       checkCommitTrigger(next);
       return next;
     });
-  }, [checkCommitTrigger]);
+    setClientScore((s) => s + pointsMultiplier);
+  }, [checkCommitTrigger, pointsMultiplier]);
 
   // Sync seq ref from restored storage so commit uses correct seq before fetchSession completes
   useEffect(() => {
@@ -555,8 +603,9 @@ export function useTapGame(): UseTapGameReturn {
       sessionId,
       localTapDelta,
       lastCommitTime,
+      clientScore,
     });
-  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime]);
+  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime, clientScore]);
 
   // Commit current uncommitted taps on app close (fire-and-forget with keepalive), regardless of in-flight state
   const flushCommitOnUnloadRef = useRef((): void => {
@@ -567,12 +616,13 @@ export function useTapGame(): UseTapGameReturn {
     const seq = seqRef.current + 1;
     const now = Date.now();
     const mult = 1; // approximate; server will apply correct multiplier
+    const clientBalanceView = Math.floor(s + manual * mult);
     const body = JSON.stringify({
       session_id: sid,
       seq,
       taps_delta: manual,
       duration_ms: now - t,
-      client_balance_view: s + manual * mult,
+      client_balance_view: clientBalanceView,
       client_ts_start: t,
       client_ts_end: now,
     });
@@ -601,6 +651,7 @@ export function useTapGame(): UseTapGameReturn {
         sessionId,
         localTapDelta,
         lastCommitTime,
+        clientScore,
       });
     };
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -636,6 +687,17 @@ export function useTapGame(): UseTapGameReturn {
   const MIN_STATE_REFETCH_INTERVAL_MS = 30_000;
   const fetchEnergyOnlyRef = useRef(fetchEnergyOnly);
   fetchEnergyOnlyRef.current = fetchEnergyOnly;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleOnline = (): void => {
+      logTap("online event: scheduling pending commit & energy refresh");
+      scheduleNextBatchIfNeededRef.current();
+      fetchEnergyOnlyRef.current();
+    };
+    window.addEventListener("online", handleOnline);
+    return () => window.removeEventListener("online", handleOnline);
+  }, []);
   useEffect(() => {
     if (!sessionId || energyServerTime <= 0 || energyRegenPerSec <= 0) return;
     const msPerEnergy = 1000 / energyRegenPerSec;
@@ -644,6 +706,10 @@ export function useTapGame(): UseTapGameReturn {
     const delayToBoundary = nextBoundaryElapsed - elapsed;
     const delay = Math.max(MIN_STATE_REFETCH_INTERVAL_MS, Math.max(0, delayToBoundary));
     const timeout = setTimeout(() => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        logTap("energy refetch skipped (offline)");
+        return;
+      }
       fetchEnergyOnlyRef.current();
     }, delay);
     return () => clearTimeout(timeout);
@@ -656,15 +722,11 @@ export function useTapGame(): UseTapGameReturn {
   /** Only manual taps consume energy; mining does not. */
   const displayEnergy = Math.max(0, effectiveEnergy - localTapDelta);
 
-  const miningSinceLastCommit =
-    lastCommitTime > 0 && miningPointsPerSec > 0
-      ? Math.floor((now - lastCommitTime) / 1000 * miningPointsPerSec)
-      : 0;
-
   const refreshState = useCallback(async () => {
     await fetchState();
   }, [fetchState]);
 
+  const score = clientScore;
   return {
     state: {
       serverBalance,
@@ -681,9 +743,10 @@ export function useTapGame(): UseTapGameReturn {
       boosters,
       isLoading,
       error,
+      clientScore,
     },
     handleTap,
-    score: serverBalance + localTapDelta * pointsMultiplier + miningSinceLastCommit,
+    score,
     displayEnergy,
     refreshState,
     ...(IS_DEV && {
