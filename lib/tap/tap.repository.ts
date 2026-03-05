@@ -7,7 +7,6 @@ import {
   users as usersTable,
 } from "@/lib/db/schema";
 import { tapConfig } from "./config";
-import type { AbuseLevel } from "./types";
 
 /** Accepts either the default db or a transaction client from db.transaction(). */
 type DbClient = typeof db;

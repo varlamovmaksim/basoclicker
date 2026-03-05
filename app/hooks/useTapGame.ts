@@ -682,7 +682,7 @@ export function useTapGame(): UseTapGameReturn {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime]);
+  }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime, clientScore]);
 
   useEffect(() => {
     let cancelled = false;
