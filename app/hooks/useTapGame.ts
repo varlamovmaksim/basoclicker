@@ -708,9 +708,9 @@ export function useTapGame(): UseTapGameReturn {
     return () => clearInterval(id);
   }, []);
 
-  // Refetch energy from backend at next regen boundary so energy anchor is renewed. Does not clear localTapDelta.
-  // Cap frequency so we never refetch more often than MIN_STATE_REFETCH_INTERVAL_MS (avoids 1 req/s when regen is fast).
-  const MIN_STATE_REFETCH_INTERVAL_MS = 30_000;
+  // Refetch energy (and mining state) from backend at next regen boundary so energy anchor is renewed. Does not clear localTapDelta.
+  // Cap frequency so we never refetch more often than once per minute.
+  const MIN_STATE_REFETCH_INTERVAL_MS = 60_000;
   const fetchEnergyOnlyRef = useRef(fetchEnergyOnly);
   fetchEnergyOnlyRef.current = fetchEnergyOnly;
 

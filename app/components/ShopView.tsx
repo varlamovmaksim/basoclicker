@@ -63,7 +63,7 @@ function BoosterRow({
 }): React.ReactElement {
   const valueStr = effectLabel(booster);
   const atMaxLevel = booster.count >= (booster.max_level ?? Infinity);
-  const dimmed = !canBuy || busy || !booster.unlocked || atMaxLevel;
+  const dimmed = booster.unlocked && (!canBuy || busy || atMaxLevel);
 
   return (
     <button
@@ -90,11 +90,6 @@ function BoosterRow({
         <div className="mt-0.5 text-xs font-extrabold text-slate-500">
           {booster.count} lvl{valueStr ? ` | ${valueStr}` : ""}
         </div>
-        {!booster.unlocked && booster.current_previous_count != null && (
-          <div className="mt-0.5 text-xs text-amber-600">
-            Buy {Math.max(0, booster.unlock_after_previous - booster.current_previous_count)} more of previous to unlock
-          </div>
-        )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <span
@@ -108,7 +103,7 @@ function BoosterRow({
       </div>
       {!booster.unlocked && (
         <div
-          className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/85 backdrop-blur-[2px]"
+          className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/85"
           aria-hidden
         >
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm">
