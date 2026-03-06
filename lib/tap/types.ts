@@ -1,3 +1,5 @@
+import type { BoosterListItem } from "@/lib/boosters/types";
+
 /** Request body for POST /api/v1/tap/commit */
 export interface TapCommitRequest {
   session_id: string;
@@ -51,22 +53,8 @@ export interface TapStateResponse {
   boosters?: BoosterListItem[];
 }
 
-/** One booster in the list returned to client (with user's count and unlock state). */
-export interface BoosterListItem {
-  id: string;
-  type: string;
-  order_index: number;
-  name: string;
-  emoji: string;
-  effect_amount: number;
-  count: number;
-  next_price: number;
-  unlocked: boolean;
-  unlock_after_previous: number;
-  current_previous_count?: number;
-  max_level: number;
-  level_effect_coefficient?: number;
-}
+/** Re-export for tap responses; defined in lib/boosters/types. */
+export type { BoosterListItem } from "@/lib/boosters/types";
 
 /** Client-side game state (batched, optimistic) */
 export interface ClientGameState {

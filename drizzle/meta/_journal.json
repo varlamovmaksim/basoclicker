@@ -43,6 +43,13 @@
       "when": 1772600000000,
       "tag": "0005_booster_max_level_and_effect",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772720139401,
+      "tag": "0006_military_carnage",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth/auth.controller";
-import { getBoosterListForUser } from "@/lib/tap/tap.service";
-import { getUserByFid, setUserBoosterCount } from "@/lib/tap/tap.repository";
+import { getBoosterListForUser } from "@/lib/boosters/boosters.service";
+import { setUserBoosterCount } from "@/lib/boosters/boosters.repository";
+import { getUserByFid } from "@/lib/tap/tap.repository";
 
 const DEV_ALLOWED =
   process.env.NODE_ENV === "development" ||

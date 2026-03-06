@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import type { TapGameDebug, TapGameState } from "../hooks/useTapGame";
 
 export interface DevViewProps {
@@ -39,6 +40,7 @@ export function DevView({
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          ...getDevAuthHeaders(),
         },
       });
       if (res.ok) await refreshState();
@@ -61,6 +63,7 @@ export function DevView({
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
+            ...getDevAuthHeaders(),
           },
           body: JSON.stringify({ booster_id: boosterId, count: nextCount }),
         });

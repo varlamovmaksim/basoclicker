@@ -1,6 +1,7 @@
 import {
   bigint,
   decimal,
+  index,
   integer,
   primaryKey,
   pgTable,
@@ -64,14 +65,23 @@ export const userBoosterPurchases = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.boosterId] })]
 );
 
-export const sessions = pgTable("sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  startedAt: timestamp("started_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
-  commitCount: bigint("commit_count", { mode: "number" }).notNull().default(0),
-});
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deviceFingerprint: varchar("device_fingerprint", { length: 128 }),
+    commitCount: bigint("commit_count", { mode: "number" }).notNull().default(0),
+  },
+  (table) => [
+    index("sessions_user_id_started_at_idx").on(
+      table.userId,
+      table.startedAt
+    ),
+  ]
+);

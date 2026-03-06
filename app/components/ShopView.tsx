@@ -6,6 +6,7 @@ import type { BoosterListItem, TapGameState } from "../hooks/useTapGame";
 import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
 import { SKINS } from "../../lib/baso/constants";
+import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 
 export interface ShopViewProps {
   shopTab: "earn" | "custom";
@@ -152,6 +153,7 @@ export function ShopView({
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
+            ...getDevAuthHeaders(),
           },
           body: JSON.stringify({ booster_id: boosterId }),
         });

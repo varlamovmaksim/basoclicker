@@ -1,6 +1,16 @@
+import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Errors } from "@farcaster/quick-auth";
 import { getAuthenticatedUser } from "./auth.service";
+
+/** Deterministic fid from device fingerprint (dev only). Same seed → same fid. */
+function deriveDevFid(fingerprint: string): string {
+  const hash = createHash("sha256").update(fingerprint).digest();
+  const lo = hash.readUInt32BE(0);
+  const hi = hash.readUInt32BE(4);
+  const n = Number((BigInt(lo) << BigInt(32)) | BigInt(hi)) >>> 0;
+  return String(1 + (n % 2147483646));
+}
 
 export function getUrlHost(request: NextRequest): string {
   const origin = request.headers.get("origin");
@@ -35,7 +45,10 @@ export async function getAuthFromRequest(
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return null;
   const token = authorization.slice(7);
-  if (IS_DEV && token === "dev") return { fid: DEV_AUTH_FID };
+  if (IS_DEV && token === "dev") {
+    const fp = request.headers.get("X-Device-Fingerprint");
+    return { fid: fp ? deriveDevFid(fp) : DEV_AUTH_FID };
+  }
   const domain = getUrlHost(request);
   try {
     const user = await getAuthenticatedUser(token, domain);
@@ -59,9 +72,11 @@ export async function handleGetAuth(
 
   const token = authorization.slice(7);
   if (IS_DEV && token === "dev") {
+    const fp = request.headers.get("X-Device-Fingerprint");
+    const fid = fp ? deriveDevFid(fp) : DEV_AUTH_FID;
     return NextResponse.json({
       success: true,
-      user: { fid: DEV_AUTH_FID, issuedAt: undefined, expiresAt: undefined },
+      user: { fid, issuedAt: undefined, expiresAt: undefined },
     });
   }
 

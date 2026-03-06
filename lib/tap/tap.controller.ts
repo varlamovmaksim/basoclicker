@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logTimings, measureAsync, recordTiming } from "@/lib/telemetry/timing";
 import { commitTaps, getFullState } from "./tap.service";
 import type { TapCommitRequest } from "./types";
 
@@ -48,7 +49,8 @@ function parseTapCommitBody(body: unknown): TapCommitRequest | null {
  */
 export async function handleTapCommit(
   request: NextRequest,
-  auth: TapAuthUser
+  auth: TapAuthUser,
+  timings?: Record<string, number>
 ): Promise<NextResponse> {
   let body: unknown;
   try {
@@ -68,7 +70,15 @@ export async function handleTapCommit(
     );
   }
 
-  const result = await commitTaps(parsed, auth);
+  let result: Awaited<ReturnType<typeof commitTaps>>;
+  if (timings) {
+    const measured = await measureAsync("service", () => commitTaps(parsed, auth));
+    result = measured.result;
+    recordTiming(timings, "service_ms", measured.ms);
+    logTimings("POST /api/v1/tap/commit", timings);
+  } else {
+    result = await commitTaps(parsed, auth);
+  }
 
   if (!result.ok) {
     return NextResponse.json(
@@ -108,9 +118,19 @@ export async function handleTapCommit(
  */
 export async function handleGetState(
   _request: NextRequest,
-  auth: TapAuthUser
+  auth: TapAuthUser,
+  timings?: Record<string, number>
 ): Promise<NextResponse> {
-  const state = await getFullState(auth);
+  let state: Awaited<ReturnType<typeof getFullState>>;
+  if (timings) {
+    const measured = await measureAsync("service", () => getFullState(auth));
+    state = measured.result;
+    recordTiming(timings, "service_ms", measured.ms);
+    logTimings("GET /api/v1/tap/state", timings);
+  } else {
+    state = await getFullState(auth);
+  }
+
   if (!state) {
     return NextResponse.json(
       { message: "User not found" },

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 
 /** Accumulated taps are sent once per this interval (ms). */
 const COMMIT_INTERVAL_MS = 5000;
@@ -236,6 +237,7 @@ export function useTapGame(): UseTapGameReturn {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
+        ...getDevAuthHeaders(),
       },
       body: JSON.stringify({}),
     });
@@ -268,13 +270,15 @@ export function useTapGame(): UseTapGameReturn {
     setEnergyServerTime(typeof data.server_time === "number" ? data.server_time : Date.now());
     seqRef.current = data.last_seq;
     const stored = getStoredState();
-    if (stored?.sessionId === data.session_id && stored.localTapDelta > 0) {
-      setLocalTapDelta(stored.localTapDelta);
-      setLastCommitTime(stored.lastCommitTime);
-      setClientScore(stored.clientScore);
+    const restoredFromStorage =
+      !!(stored?.sessionId === data.session_id && stored.localTapDelta > 0);
+    if (restoredFromStorage) {
+      setLocalTapDelta(stored!.localTapDelta);
+      setLastCommitTime(stored!.lastCommitTime);
+      setClientScore(stored!.clientScore);
       logTap("fetchSession restored uncommitted", {
-        localTapDelta: stored.localTapDelta,
-        clientScore: stored.clientScore,
+        localTapDelta: stored!.localTapDelta,
+        clientScore: stored!.clientScore,
       });
     } else {
       setLocalTapDelta(0);
@@ -291,7 +295,10 @@ export function useTapGame(): UseTapGameReturn {
     if (!token) return;
     const base = getApiBase();
     const res = await fetch(`${base}/api/v1/tap/state`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...getDevAuthHeaders(),
+      },
     });
     if (!res.ok) return;
     const data = (await res.json()) as {
@@ -330,7 +337,10 @@ export function useTapGame(): UseTapGameReturn {
     if (!token) return;
     const base = getApiBase();
     const res = await fetch(`${base}/api/v1/tap/state`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...getDevAuthHeaders(),
+      },
     });
     if (!res.ok) return;
     const data = (await res.json()) as {
@@ -439,6 +449,7 @@ export function useTapGame(): UseTapGameReturn {
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
+            ...getDevAuthHeaders(),
           },
           body: JSON.stringify({
             session_id: sessionId,
@@ -661,6 +672,7 @@ export function useTapGame(): UseTapGameReturn {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
+          ...getDevAuthHeaders(),
         },
         body,
         keepalive: true,
@@ -686,14 +698,30 @@ export function useTapGame(): UseTapGameReturn {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [serverBalance, lastServerSeq, sessionId, localTapDelta, lastCommitTime, clientScore]);
 
+  // Dedupe: React Strict Mode runs effect, then cleanup, then effect again. Clear the
+  // shared promise only after a short delay so the second run reuses the same request.
+  const SESSION_FETCH_DEDUPE_MS = 200;
+  const sessionFetchPromiseRef = useRef<Promise<boolean> | null>(null);
+  const sessionFetchClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    if (sessionFetchClearTimeoutRef.current) {
+      clearTimeout(sessionFetchClearTimeoutRef.current);
+      sessionFetchClearTimeoutRef.current = null;
+    }
+    if (!sessionFetchPromiseRef.current) {
+      sessionFetchPromiseRef.current = fetchSession();
+    }
+    const promise = sessionFetchPromiseRef.current;
     let cancelled = false;
-    (async () => {
-      await fetchSession();
+    void promise.then((_ok) => {
       if (!cancelled) setIsLoading(false);
-    })();
+    });
     return () => {
       cancelled = true;
+      sessionFetchClearTimeoutRef.current = setTimeout(() => {
+        sessionFetchPromiseRef.current = null;
+        sessionFetchClearTimeoutRef.current = null;
+      }, SESSION_FETCH_DEDUPE_MS);
       if (commitTimeoutRef.current) {
         logTap("effect cleanup: clearing commit timeout");
         clearTimeout(commitTimeoutRef.current);
