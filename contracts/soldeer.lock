@@ -1,0 +1,6 @@
+[[dependencies]]
+name = "@openzeppelin-contracts"
+version = "5.6.0"
+url = "https://soldeer-revisions.s3.amazonaws.com/@openzeppelin-contracts/5_6_0_27-02-2026_07:51:53_contracts.zip"
+checksum = "abed7c3e54d86ad85fb4b349498b80d282ad52c085ec6ae970bd3f5fc54ed4f2"
+integrity = "64d33d721fa88f564c134f9049cccbd4996aec6a109e4b33a415cc0fece75d83"

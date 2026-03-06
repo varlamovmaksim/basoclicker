@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   lastCommitAt: timestamp("last_commit_at", { withTimezone: true }),
   lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
   avgTps: bigint("avg_tps", { mode: "number" }),
+  walletAddress: varchar("wallet_address", { length: 42 }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -79,9 +80,28 @@ export const sessions = pgTable(
     commitCount: bigint("commit_count", { mode: "number" }).notNull().default(0),
   },
   (table) => [
-    index("sessions_user_id_started_at_idx").on(
+    index("sessions_user_id_started_at_idx").on(table.userId, table.startedAt),
+  ]
+);
+
+export const dailyClaims = pgTable(
+  "daily_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    txHash: varchar("tx_hash", { length: 66 }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("daily_claims_tx_hash_unique").on(table.txHash),
+    index("daily_claims_user_id_claimed_at_idx").on(
       table.userId,
-      table.startedAt
+      table.claimedAt
     ),
   ]
 );
+
