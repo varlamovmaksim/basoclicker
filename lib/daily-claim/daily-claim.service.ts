@@ -104,9 +104,12 @@ async function rpcCall<T>(
   return json.result ?? null;
 }
 
+const DEFAULT_CHAIN_ID = 8453; // Base mainnet
+
 export async function verifyAndApplyDailyClaim(
   auth: DailyClaimAuthUser,
-  txHash: string
+  txHash: string,
+  chainId: number = DEFAULT_CHAIN_ID
 ): Promise<DailyClaimResult> {
   if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
     return { ok: false, reason: "invalid_tx_hash" };
@@ -168,13 +171,18 @@ export async function verifyAndApplyDailyClaim(
       return { ok: false, reason: "wallet_mismatch" } as DailyClaimResult;
     }
 
-    const alreadyUsed = await hasDailyClaimWithTxHash(txHash, txClient);
+    const alreadyUsed = await hasDailyClaimWithTxHash(
+      txHash,
+      chainId,
+      txClient
+    );
     if (alreadyUsed) {
       return { ok: false, reason: "tx_already_used" } as DailyClaimResult;
     }
 
     const lastClaim = await getLastDailyClaimSince(
       user.id,
+      chainId,
       twentyFourHoursAgo,
       txClient
     );
@@ -185,6 +193,7 @@ export async function verifyAndApplyDailyClaim(
     const { balance } = await createDailyClaimAndAddPoints(
       user.id,
       txHash,
+      chainId,
       POINTS_PER_CLAIM,
       now,
       txClient

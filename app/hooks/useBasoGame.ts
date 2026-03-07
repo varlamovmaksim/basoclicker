@@ -1,12 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAccount, usePublicClient, useReadContract, useWalletClient } from "wagmi";
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
 import { buildLeaderboard } from "../../lib/baso/leaderboard";
 import { msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
 import { pickNextDonutColor } from "../../lib/baso/donut";
+import {
+  getVaultAddress,
+  getTokenAddress,
+  TAPPER_VAULT_ABI,
+  ERC20_ABI,
+  TOKEN_DECIMALS,
+} from "@/app/lib/contracts";
+import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
+import { formatUnits, parseUnits } from "viem";
 
 export interface Pop {
   id: string;
@@ -107,9 +117,25 @@ export function useBasoGame(): UseBasoGameReturn {
     displayMining,
     debug,
     refreshState,
+    getToken,
     applyOptimisticPurchaseDeduction,
     revertOptimisticPurchaseDeduction,
   } = useTapGame();
+
+  const { address: walletAddress, chainId: walletChainId } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const tokenAddr = getTokenAddress();
+  const { data: tokenBalanceRaw } = useReadContract({
+    address: tokenAddr ?? undefined,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: walletAddress ? [walletAddress] : undefined,
+  });
+  const usdcBalanceFromChain =
+    tokenBalanceRaw != null && tokenAddr
+      ? Number(formatUnits(tokenBalanceRaw, TOKEN_DECIMALS))
+      : null;
 
   const [tab, setTab] = useState<BasoTabKey>("home");
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
@@ -203,14 +229,84 @@ export function useBasoGame(): UseBasoGameReturn {
 
   const doGM = useCallback(async () => {
     if (!gmAvailable) {
-      showToast("GM already claimed");
+      showToast("Daily already claimed");
       return;
     }
-    showToast("Sending GM…");
-    await new Promise((r) => setTimeout(r, 900));
-    setLastGMDay(today);
-    showToast("GM success (mock)");
-  }, [gmAvailable, showToast, today]);
+    const vaultAddr = getVaultAddress();
+    if (!vaultAddr || !walletClient || !publicClient) {
+      if (!vaultAddr) {
+        showToast("Daily not configured (mock)");
+        await new Promise((r) => setTimeout(r, 900));
+        setLastGMDay(today);
+        return;
+      }
+      showToast("Connect wallet to claim daily");
+      return;
+    }
+    try {
+      showToast("Confirm daily in wallet…");
+      const hash = await walletClient.writeContract({
+        address: vaultAddr,
+        abi: TAPPER_VAULT_ABI,
+        functionName: "recordDaily",
+      });
+      showToast("Waiting for confirmation…");
+      await publicClient.waitForTransactionReceipt({ hash });
+      const token = await getToken();
+      if (!token) {
+        showToast("Session expired");
+        return;
+      }
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      const res = await fetch(`${base}/api/v1/daily-claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...getDevAuthHeaders(),
+        },
+        body: JSON.stringify({
+          tx_hash: hash,
+          chain_id: walletChainId ?? 8453,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        reason?: string;
+        balance?: number;
+      };
+      if (data.ok && data.balance != null) {
+        setLastGMDay(today);
+        await refreshState();
+        showToast(`+1000 points! Balance: ${data.balance.toLocaleString()}`);
+      } else {
+        const msg =
+          data.reason === "already_claimed_today"
+            ? "Already claimed today"
+            : data.reason === "tx_already_used"
+              ? "Tx already used"
+              : data.reason === "wallet_mismatch"
+                ? "Use the same wallet"
+                : "Claim failed";
+        showToast(msg);
+        if (data.reason === "already_claimed_today" || data.reason === "tx_already_used") {
+          setLastGMDay(today);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Daily claim failed";
+      showToast(msg.slice(0, 40));
+    }
+  }, [
+    gmAvailable,
+    today,
+    showToast,
+    walletClient,
+    publicClient,
+    getToken,
+    refreshState,
+    walletChainId,
+  ]);
 
   const referralLink = useMemo(
     () => `https://base.app/miniapp/baso?ref=${referralCode}`,
@@ -252,7 +348,7 @@ export function useBasoGame(): UseBasoGameReturn {
 
   const [donateOpen, setDonateOpen] = useState(false);
   const [donateAmount, setDonateAmount] = useState<string>("");
-  const [usdcBalance] = useState<number>(23.41);
+  const usdcBalance = usdcBalanceFromChain ?? 23.41;
 
   const openDonate = useCallback(() => {
     setDonateAmount("");
@@ -279,14 +375,52 @@ export function useBasoGame(): UseBasoGameReturn {
       return;
     }
     if (amt > usdcBalance) {
-      showToast("Insufficient USDC");
+      showToast("Insufficient balance");
       return;
     }
-    showToast("Sending USDC… (mock)");
-    await new Promise((r) => setTimeout(r, 900));
-    showToast("Donation sent (mock)");
-    setDonateOpen(false);
-  }, [donateAmount, usdcBalance, showToast]);
+    const vaultAddr = getVaultAddress();
+    if (!vaultAddr || !tokenAddr || !walletClient || !publicClient) {
+      if (!vaultAddr || !tokenAddr) {
+        showToast("Donate not configured (mock)");
+        await new Promise((r) => setTimeout(r, 900));
+        setDonateOpen(false);
+        return;
+      }
+      showToast("Connect wallet to donate");
+      return;
+    }
+    try {
+      const amountWei = parseUnits(donateAmount, TOKEN_DECIMALS);
+      showToast("Approve in wallet…");
+      const approveHash = await walletClient.writeContract({
+        address: tokenAddr,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [vaultAddr, amountWei],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: approveHash });
+      showToast("Donating…");
+      const donateHash = await walletClient.writeContract({
+        address: vaultAddr,
+        abi: TAPPER_VAULT_ABI,
+        functionName: "donate",
+        args: [amountWei],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: donateHash });
+      showToast("Donation sent");
+      setDonateOpen(false);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Donation failed";
+      showToast(msg.slice(0, 40));
+    }
+  }, [
+    donateAmount,
+    usdcBalance,
+    showToast,
+    tokenAddr,
+    walletClient,
+    publicClient,
+  ]);
 
   const onTap = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {

@@ -92,14 +92,19 @@ export const dailyClaims = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     txHash: varchar("tx_hash", { length: 66 }).notNull(),
+    chainId: integer("chain_id").notNull(),
     claimedAt: timestamp("claimed_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("daily_claims_tx_hash_unique").on(table.txHash),
-    index("daily_claims_user_id_claimed_at_idx").on(
+    uniqueIndex("daily_claims_tx_hash_chain_id_unique").on(
+      table.txHash,
+      table.chainId
+    ),
+    index("daily_claims_user_id_chain_id_claimed_at_idx").on(
       table.userId,
+      table.chainId,
       table.claimedAt
     ),
   ]

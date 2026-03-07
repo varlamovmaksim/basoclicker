@@ -67,19 +67,23 @@ export async function setUserWalletIfMissing(
 
 export async function hasDailyClaimWithTxHash(
   txHash: string,
+  chainId: number,
   client?: DbClient | unknown
 ): Promise<boolean> {
   const c = withClient(client);
   const rows = await c
     .select({ id: dailyClaims.id })
     .from(dailyClaims)
-    .where(eq(dailyClaims.txHash, txHash))
+    .where(
+      and(eq(dailyClaims.txHash, txHash), eq(dailyClaims.chainId, chainId))
+    )
     .limit(1);
   return !!rows[0];
 }
 
 export async function getLastDailyClaimSince(
   userId: string,
+  chainId: number,
   since: Date,
   client?: DbClient | unknown
 ): Promise<{ claimedAt: Date } | null> {
@@ -90,6 +94,7 @@ export async function getLastDailyClaimSince(
     .where(
       and(
         eq(dailyClaims.userId, userId),
+        eq(dailyClaims.chainId, chainId),
         gte(dailyClaims.claimedAt, since),
         lt(dailyClaims.claimedAt, new Date())
       )
@@ -104,6 +109,7 @@ export async function getLastDailyClaimSince(
 export async function createDailyClaimAndAddPoints(
   userId: string,
   txHash: string,
+  chainId: number,
   points: number,
   claimedAt: Date,
   client?: DbClient | unknown
@@ -112,6 +118,7 @@ export async function createDailyClaimAndAddPoints(
   await c.insert(dailyClaims).values({
     userId,
     txHash,
+    chainId,
     claimedAt,
   });
   const updated = await c

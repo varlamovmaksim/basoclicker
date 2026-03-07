@@ -41,7 +41,13 @@ export async function handleDailyClaim(
     );
   }
 
-  const result = await verifyAndApplyDailyClaim(auth, parsed.tx_hash);
+  const chainId =
+    typeof parsed.chain_id === "number" ? parsed.chain_id : 8453; // Base mainnet
+  const result = await verifyAndApplyDailyClaim(
+    auth,
+    parsed.tx_hash,
+    chainId
+  );
 
   if (!result.ok) {
     return NextResponse.json(

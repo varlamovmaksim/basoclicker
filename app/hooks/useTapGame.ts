@@ -146,6 +146,8 @@ export interface UseTapGameReturn {
   debug?: TapGameDebug;
   /** Refetch state from server (e.g. after restore energy or booster purchase). */
   refreshState: () => Promise<void>;
+  /** Auth token for API calls (e.g. daily-claim). */
+  getToken: () => Promise<string | null>;
   /** Subtract amount from displayed score until revert or refresh (e.g. before booster purchase). */
   applyOptimisticPurchaseDeduction: (amount: number) => void;
   /** Restore amount to displayed score (e.g. when purchase fails). */
@@ -823,6 +825,7 @@ export function useTapGame(): UseTapGameReturn {
     displayEnergy,
     displayMining,
     refreshState,
+    getToken,
     applyOptimisticPurchaseDeduction,
     revertOptimisticPurchaseDeduction,
     ...(IS_DEV && {
