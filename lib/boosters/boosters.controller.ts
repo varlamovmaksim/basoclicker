@@ -1,8 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBoosterListForUser } from "./boosters.service";
+import { setUserBoosterCount } from "./boosters.repository";
+import { getUserByFid } from "@/lib/user/user.repository";
 import { purchaseBooster } from "./boosters.service";
 
 export interface BoostersAuthUser {
   fid: string;
+}
+
+function parseDevBoosterBody(
+  body: unknown
+): { booster_id: string; count: number } | null {
+  if (body == null || typeof body !== "object") return null;
+  const o = body as Record<string, unknown>;
+  const booster_id = o.booster_id;
+  const count = o.count;
+  if (typeof booster_id !== "string" || booster_id.length === 0) return null;
+  if (typeof count !== "number" || count < 0 || !Number.isFinite(count))
+    return null;
+  return { booster_id, count: Math.floor(count) };
+}
+
+/**
+ * POST /api/dev/boosters — dev-only: set booster purchase count. Requires auth.
+ * Body: { booster_id: string (UUID), count: number }
+ */
+export async function handleSetDevBoosterCount(
+  request: NextRequest,
+  auth: BoostersAuthUser
+): Promise<NextResponse> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ message: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = parseDevBoosterBody(body);
+  if (!parsed) {
+    return NextResponse.json(
+      {
+        message:
+          "Provide booster_id (string) and count (non-negative number)",
+      },
+      { status: 400 }
+    );
+  }
+
+  const user = await getUserByFid(auth.fid);
+  if (!user) {
+    return NextResponse.json({ message: "User not found" }, { status: 404 });
+  }
+
+  await setUserBoosterCount(user.id, parsed.booster_id, parsed.count);
+  const boosters = await getBoosterListForUser(user.id);
+
+  return NextResponse.json({
+    booster_id: parsed.booster_id,
+    count: parsed.count,
+    boosters,
+  });
 }
 
 function parseBody(body: unknown): string | null {

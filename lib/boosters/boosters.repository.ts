@@ -1,10 +1,10 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   boosters as boostersTable,
   userBoosterPurchases as userBoosterPurchasesTable,
-  users as usersTable,
 } from "@/lib/db/schema";
+import { deductBalance } from "@/lib/user/user.repository";
 import type { BoosterRow } from "./types";
 
 /** Accepts either the default db or a transaction client from db.transaction(). */
@@ -68,13 +68,8 @@ export async function purchaseBooster(
   async function run(
     c: DbClient
   ): Promise<{ balance: number; counts: Map<string, number> } | null> {
-    const updated = await c
-      .update(usersTable)
-      .set({ balance: sql`${usersTable.balance} - ${price}` })
-      .where(and(eq(usersTable.id, userId), sql`${usersTable.balance} >= ${price}`))
-      .returning({ balance: usersTable.balance });
-    const row = updated[0];
-    if (!row) return null;
+    const newBalance = await deductBalance(userId, price, c);
+    if (newBalance === null) return null;
     await c
       .insert(userBoosterPurchasesTable)
       .values({
@@ -92,7 +87,7 @@ export async function purchaseBooster(
         },
       });
     const counts = await getUserBoosterCounts(userId, c);
-    return { balance: row.balance as number, counts };
+    return { balance: newBalance, counts };
   }
   if (client) return run(client as DbClient);
   return db.transaction((tx) => run(tx as unknown as DbClient));

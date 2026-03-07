@@ -42,7 +42,7 @@ Reusable across base miniapp projects. Copy to a new repo and adjust app name if
 
 - Backend lives under `lib/` only. Use file suffixes: `*.controller.ts`, `*.service.ts`, `*.repository.ts`.
 - **Controller:** Validate input (body/query), call service, map to HTTP status + JSON; no business logic.
-- **Service:** Orchestrate use cases; call repositories only; no `Request`/`Response`, no direct DB or HTTP to external systems.
+- **Service:** Orchestrate use cases; call service, repositories, or helpers; no `Request`/`Response`, no direct DB or HTTP to external systems.
 - **Repository:** All external communication (DB via Drizzle, external APIs, etc.); accept/return domain-friendly types or IDs.
 - One folder per bounded context; no god-modules.
 

@@ -1,10 +1,10 @@
-import { db } from "@/lib/db/client";
+import { setWalletIfMissing } from "@/lib/user/user.repository";
 import {
   createDailyClaimAndAddPoints,
   getLastDailyClaimSince,
   getUserForDailyClaimByFid,
   hasDailyClaimWithTxHash,
-  setUserWalletIfMissing,
+  runInTransaction,
 } from "./daily-claim.repository";
 
 export interface DailyClaimAuthUser {
@@ -157,7 +157,7 @@ export async function verifyAndApplyDailyClaim(
   const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const POINTS_PER_CLAIM = 1000;
 
-  return db.transaction(async (txClient) => {
+  return runInTransaction(async (txClient) => {
     const user = await getUserForDailyClaimByFid(auth.fid, txClient);
     if (!user) {
       return { ok: false, reason: "user_not_found" } as DailyClaimResult;
@@ -165,7 +165,7 @@ export async function verifyAndApplyDailyClaim(
 
     const finalWallet =
       user.walletAddress ??
-      (await setUserWalletIfMissing(user.id, from, txClient));
+      (await setWalletIfMissing(user.id, from, txClient));
 
     if (finalWallet && finalWallet.toLowerCase() !== from) {
       return { ok: false, reason: "wallet_mismatch" } as DailyClaimResult;

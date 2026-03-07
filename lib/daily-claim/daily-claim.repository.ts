@@ -1,12 +1,18 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { dailyClaims, users } from "@/lib/db/schema";
+import { dailyClaims } from "@/lib/db/schema";
+import type { DbClient } from "@/lib/user/user.repository";
+import {
+  addBalance,
+  getUserByFid,
+  withClient,
+} from "@/lib/user/user.repository";
+
+export type { DbClient };
 
 /** Accepts either the default db or a transaction client from db.transaction(). */
-type DbClient = typeof db;
-
-function withClient(client?: DbClient | unknown): DbClient {
-  return (client ?? db) as DbClient;
+function withDbClient(client?: DbClient | unknown): DbClient {
+  return withClient(client);
 }
 
 export interface DailyClaimUserRow {
@@ -16,53 +22,28 @@ export interface DailyClaimUserRow {
   balance: number;
 }
 
+/**
+ * Run a function inside a DB transaction. Use from daily-claim.service so the service
+ * does not touch db directly.
+ */
+export async function runInTransaction<T>(
+  fn: (tx: unknown) => Promise<T>
+): Promise<T> {
+  return db.transaction((tx) => fn(tx));
+}
+
 export async function getUserForDailyClaimByFid(
   fid: string,
   client?: DbClient | unknown
 ): Promise<DailyClaimUserRow | null> {
-  const c = withClient(client);
-  const rows = await c
-    .select({
-      id: users.id,
-      fid: users.fid,
-      walletAddress: users.walletAddress,
-      balance: users.balance,
-    })
-    .from(users)
-    .where(eq(users.fid, fid))
-    .limit(1);
-  const row = rows[0];
-  if (!row) return null;
+  const user = await getUserByFid(fid, client);
+  if (!user) return null;
   return {
-    id: row.id,
-    fid: row.fid,
-    walletAddress: row.walletAddress ?? null,
-    balance: row.balance as number,
+    id: user.id,
+    fid: user.fid,
+    walletAddress: user.walletAddress,
+    balance: user.balance,
   };
-}
-
-export async function setUserWalletIfMissing(
-  userId: string,
-  walletAddress: string,
-  client?: DbClient | unknown
-): Promise<string> {
-  const c = withClient(client);
-  const updated = await c
-    .update(users)
-    .set({ walletAddress })
-    .where(and(eq(users.id, userId), sql`${users.walletAddress} IS NULL`))
-    .returning({ walletAddress: users.walletAddress });
-  const row = updated[0];
-  if (row && row.walletAddress) {
-    return row.walletAddress;
-  }
-  const current = await c
-    .select({ walletAddress: users.walletAddress })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  const existing = current[0]?.walletAddress ?? null;
-  return existing ?? walletAddress;
 }
 
 export async function hasDailyClaimWithTxHash(
@@ -70,7 +51,7 @@ export async function hasDailyClaimWithTxHash(
   chainId: number,
   client?: DbClient | unknown
 ): Promise<boolean> {
-  const c = withClient(client);
+  const c = withDbClient(client);
   const rows = await c
     .select({ id: dailyClaims.id })
     .from(dailyClaims)
@@ -87,7 +68,7 @@ export async function getLastDailyClaimSince(
   since: Date,
   client?: DbClient | unknown
 ): Promise<{ claimedAt: Date } | null> {
-  const c = withClient(client);
+  const c = withDbClient(client);
   const rows = await c
     .select({ claimedAt: dailyClaims.claimedAt })
     .from(dailyClaims)
@@ -114,21 +95,13 @@ export async function createDailyClaimAndAddPoints(
   claimedAt: Date,
   client?: DbClient | unknown
 ): Promise<{ balance: number }> {
-  const c = withClient(client);
+  const c = withDbClient(client);
   await c.insert(dailyClaims).values({
     userId,
     txHash,
     chainId,
     claimedAt,
   });
-  const updated = await c
-    .update(users)
-    .set({
-      balance: sql`${users.balance} + ${points}`,
-    })
-    .where(eq(users.id, userId))
-    .returning({ balance: users.balance });
-  const row = updated[0];
-  return { balance: (row?.balance as number) ?? 0 };
+  const balance = await addBalance(userId, points, c);
+  return { balance };
 }
-

@@ -1,21 +1,20 @@
-import { db } from "@/lib/db/client";
 import {
+  getBoosterListForUser,
   getEffectiveBoosterStats,
-  getStatsAndBoosterList,
 } from "@/lib/boosters/boosters.service";
 import {
-  createSession,
-  getLatestSessionByUserId,
+  commitUserAndIncrementSession,
+  startSessionWithIdleMiningInDb,
+} from "@/lib/session/session.repository";
+import {
   getOrCreateUserByFid,
-  getSessionById,
-  getUserById,
   getUserByIdForUpdate,
   getUserByFid,
-  incrementSessionCommitCount,
   setUserEnergy,
-  updateUserAfterCommit,
   updateUserAfterIdleMining,
-} from "./tap.repository";
+} from "@/lib/user/user.repository";
+import { tapConfig } from "@/lib/tap/config";
+import { getStateContext, getCommitContext, runInTransaction } from "./tap.repository";
 import type {
   BoosterListItem,
   TapCommitRequest,
@@ -27,19 +26,31 @@ export interface AuthUserForTap {
   fid: string;
 }
 
+/** User slice for idle mining: pick from UserRow. */
+interface UserForIdleMining {
+  lastCommitAt: Date | null;
+  lastEnergyAt: Date | null;
+  createdAt: Date;
+}
+
+/** User slice for energy regen: pick from UserRow. */
+interface UserForEnergyRegen {
+  energy: number;
+  lastEnergyAt: Date | null;
+  createdAt: Date;
+}
+
 /**
  * Compute idle mining points for elapsed time since last_commit_at (fallback: last_energy_at, then createdAt).
  * Mining does not consume energy.
  */
 function computeIdleMining(
-  lastCommitAt: Date | null,
-  lastEnergyAt: Date | null,
-  createdAt: Date,
+  user: UserForIdleMining,
   serverNow: Date,
   miningPointsPerSec: number
 ): number {
   if (miningPointsPerSec <= 0) return 0;
-  const from = lastCommitAt ?? lastEnergyAt ?? createdAt;
+  const from = user.lastCommitAt ?? user.lastEnergyAt ?? user.createdAt;
   const elapsedMs = serverNow.getTime() - from.getTime();
   const elapsedSec = elapsedMs / 1000;
   return Math.floor(elapsedSec * miningPointsPerSec);
@@ -50,19 +61,17 @@ function computeIdleMining(
  * Uses effective energyMax and energyRegenPerSec (from boosters).
  */
 function currentEnergyAfterRegen(
-  energy: number,
-  lastEnergyAt: Date | null,
-  createdAt: Date,
+  user: UserForEnergyRegen,
   serverNow: Date,
   energyMax: number,
   energyRegenPerSec: number
 ): number {
-  const from = lastEnergyAt ?? createdAt;
+  const from = user.lastEnergyAt ?? user.createdAt;
   const elapsedMs = serverNow.getTime() - from.getTime();
   const elapsedSeconds = elapsedMs / 1000;
   const regen = Math.floor(elapsedSeconds * energyRegenPerSec);
-  const added = Math.min(energyMax - energy, regen);
-  return Math.min(energyMax, energy + added);
+  const added = Math.min(energyMax - user.energy, regen);
+  return Math.min(energyMax, user.energy + added);
 }
 
 /**
@@ -72,25 +81,23 @@ export async function commitTaps(
   body: TapCommitRequest,
   auth: AuthUserForTap
 ): Promise<TapCommitResponse> {
-  const [user, session] = await Promise.all([
-    getUserByFid(auth.fid),
-    getSessionById(body.session_id),
-  ]);
-  if (!user || !session || session.userId !== user.id) {
+  const ctx = await getCommitContext(auth.fid, body.session_id);
+  if (!ctx) {
     return {
       ok: false,
       resync_required: true,
       session_id: body.session_id,
-      last_seq: user?.lastSeq ?? 0,
+      last_seq: 0,
     };
   }
+  const { user, stats, list: boosters } = ctx;
 
   const requested = Math.max(0, Math.floor(body.taps_delta));
   const serverNow = new Date();
 
-  return await db.transaction(async (tx) => {
-    const currentUser = await getUserById(user.id, tx);
-    if (!currentUser) {
+  return await runInTransaction(async (tx) => {
+    const expectedSeq = user.lastSeq + 1;
+    if (body.seq !== expectedSeq) {
       return {
         ok: false,
         resync_required: true,
@@ -99,33 +106,15 @@ export async function commitTaps(
       };
     }
 
-    const expectedSeq = currentUser.lastSeq + 1;
-    if (body.seq !== expectedSeq) {
-      return {
-        ok: false,
-        resync_required: true,
-        session_id: body.session_id,
-        last_seq: currentUser.lastSeq,
-      };
-    }
-
-    const { stats, list: boosters } = await getStatsAndBoosterList(
-      currentUser.id,
-      tx as unknown
-    );
     const currentEnergy = currentEnergyAfterRegen(
-      currentUser.energy,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
+      user,
       serverNow,
       stats.energyMax,
       stats.energyRegenPerSec
     );
 
     const idleMiningPoints = computeIdleMining(
-      currentUser.lastCommitAt,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
+      user,
       serverNow,
       stats.miningPointsPerSec
     );
@@ -143,10 +132,12 @@ export async function commitTaps(
       (pointsFromClient !== null ? pointsFromClient : serverFloorPoints) +
       idleMiningPoints;
     const newEnergy = currentEnergy - effectiveManual;
-    const newBalance = currentUser.balance + balanceDelta;
+    const newBalance = user.balance + balanceDelta;
 
-    await updateUserAfterCommit(
+    const persisted = await commitUserAndIncrementSession(
       user.id,
+      body.session_id,
+      expectedSeq,
       balanceDelta,
       newEnergy,
       serverNow,
@@ -154,7 +145,14 @@ export async function commitTaps(
       body.seq,
       tx
     );
-    await incrementSessionCommitCount(body.session_id, tx);
+    if (!persisted) {
+      return {
+        ok: false,
+        resync_required: true,
+        session_id: body.session_id,
+        last_seq: user.lastSeq,
+      };
+    }
 
     return {
       ok: true,
@@ -191,7 +189,7 @@ export interface StartSessionResult {
 
 /**
  * Create or get user, create a new session, return session_id and initial state.
- * Applies idle mining in the same transaction when applicable.
+ * Idle mining and stats are computed in the DB in one round-trip; booster list is fetched separately.
  */
 export async function startSession(
   auth: AuthUserForTap,
@@ -199,52 +197,27 @@ export async function startSession(
 ): Promise<StartSessionResult> {
   const user = await getOrCreateUserByFid(auth.fid);
 
-  return await db.transaction(async (tx) => {
-    const currentUser = await getUserByIdForUpdate(user.id, tx);
-    if (!currentUser) throw new Error("User not found after lock");
-    const session = await createSession(user.id, deviceFingerprint, tx);
-
-    const serverNow = new Date();
-    const { stats, list: boosters } = await getStatsAndBoosterList(
-      currentUser.id,
-      tx as unknown
+  return await runInTransaction(async (tx) => {
+    const result = await startSessionWithIdleMiningInDb(
+      user.id,
+      deviceFingerprint ?? null,
+      tapConfig.ENERGY_REGEN_PER_SEC,
+      tapConfig.ENERGY_MAX,
+      tx
     );
-    const miningPoints = computeIdleMining(
-      currentUser.lastCommitAt,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
-      serverNow,
-      stats.miningPointsPerSec
-    );
-    if (miningPoints > 0) {
-      await updateUserAfterIdleMining(
-        currentUser.id,
-        miningPoints,
-        serverNow,
-        tx
-      );
-    }
-    const balance =
-      miningPoints > 0 ? currentUser.balance + miningPoints : currentUser.balance;
-    const energy = currentEnergyAfterRegen(
-      currentUser.energy,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
-      serverNow,
-      stats.energyMax,
-      stats.energyRegenPerSec
-    );
+    if (!result) throw new Error("User not found after lock");
+    const boosters = await getBoosterListForUser(user.id, tx as unknown);
 
     return {
-      session_id: session.id,
-      balance,
-      last_seq: currentUser.lastSeq,
-      energy,
-      energy_max: stats.energyMax,
-      energy_regen_per_sec: stats.energyRegenPerSec,
-      server_time: serverNow.getTime(),
-      points_multiplier: stats.pointsMultiplier,
-      mining_points_per_sec: stats.miningPointsPerSec,
+      session_id: result.session.id,
+      balance: result.balance,
+      last_seq: result.lastSeq,
+      energy: result.energyAfterRegen,
+      energy_max: result.energyMax,
+      energy_regen_per_sec: result.energyRegenPerSec,
+      server_time: result.serverTime,
+      points_multiplier: result.pointsMultiplier,
+      mining_points_per_sec: result.miningPointsPerSec,
       boosters,
     };
   });
@@ -257,22 +230,17 @@ export async function startSession(
 export async function getFullState(
   auth: AuthUserForTap
 ): Promise<TapStateResponse | null> {
-  const user = await getUserByFid(auth.fid);
-  if (!user) return null;
+  const ctx = await getStateContext(auth.fid);
+  if (!ctx) return null;
+  const { user, session, stats, list: boosters } = ctx;
 
-  return await db.transaction(async (tx) => {
+  return await runInTransaction(async (tx) => {
     const currentUser = await getUserByIdForUpdate(user.id, tx);
     if (!currentUser) return null;
 
     const serverNow = new Date();
-    const [session, { stats, list: boosters }] = await Promise.all([
-      getLatestSessionByUserId(user.id, tx),
-      getStatsAndBoosterList(currentUser.id, tx as unknown),
-    ]);
     const miningPoints = computeIdleMining(
-      currentUser.lastCommitAt,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
+      currentUser,
       serverNow,
       stats.miningPointsPerSec
     );
@@ -287,9 +255,7 @@ export async function getFullState(
     const balance =
       miningPoints > 0 ? currentUser.balance + miningPoints : currentUser.balance;
     const energy = currentEnergyAfterRegen(
-      currentUser.energy,
-      currentUser.lastEnergyAt,
-      currentUser.createdAt,
+      currentUser,
       serverNow,
       stats.energyMax,
       stats.energyRegenPerSec
