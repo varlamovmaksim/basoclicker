@@ -100,6 +100,11 @@ export interface UseBasoGameReturn {
   applyOptimisticPurchaseDeduction: (amount: number) => void;
   revertOptimisticPurchaseDeduction: (amount: number) => void;
   donutColor: string;
+
+  /** For dev panel: daily claim status from API. */
+  dailyClaimStatus: { can_claim_daily: boolean; last_claim_at: string | null };
+  /** For dev panel: connected wallet chain ID. */
+  walletChainId: number | undefined;
 }
 
 function loadPersisted(): BasoPersisted | null {
@@ -692,6 +697,9 @@ export function useBasoGame(): UseBasoGameReturn {
     refreshState,
     applyOptimisticPurchaseDeduction,
     revertOptimisticPurchaseDeduction,
+
+    dailyClaimStatus: dailyClaimStatus,
+    walletChainId,
   };
 }
 

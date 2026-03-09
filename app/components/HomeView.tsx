@@ -209,6 +209,8 @@ export function HomeView(): React.ReactElement {
                 displayEnergy={game.displayEnergy}
                 debug={game.debug}
                 refreshState={game.refreshState}
+                chainId={game.walletChainId ?? 8453}
+                dailyClaimStatus={game.dailyClaimStatus}
               />
             )}
           </SubPageShell>
