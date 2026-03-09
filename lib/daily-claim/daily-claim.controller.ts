@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { DailyClaimAuthUser } from "./daily-claim.service";
-import { verifyAndApplyDailyClaim } from "./daily-claim.service";
+import {
+  getDailyClaimStatus,
+  verifyAndApplyDailyClaim,
+} from "./daily-claim.service";
+
+const DEFAULT_CHAIN_ID = 8453;
+
+function parseChainIdFromRequest(request: NextRequest): number {
+  const url = new URL(request.url);
+  const chainId = url.searchParams.get("chain_id");
+  if (chainId === null) return DEFAULT_CHAIN_ID;
+  const n = parseInt(chainId, 10);
+  return Number.isNaN(n) ? DEFAULT_CHAIN_ID : n;
+}
 
 interface DailyClaimRequestBody {
   tx_hash: string;
@@ -63,5 +76,25 @@ export async function handleDailyClaim(
     ok: true,
     balance: result.balance,
   });
+}
+
+/**
+ * GET /api/v1/daily-claim/status?chain_id=8453 — return whether user can claim daily and last claim time.
+ */
+export async function handleGetDailyClaimStatus(
+  request: NextRequest,
+  auth: DailyClaimAuthUser
+): Promise<NextResponse> {
+  const chainId = parseChainIdFromRequest(request);
+  const status = await getDailyClaimStatus(auth, chainId);
+
+  if (!status) {
+    return NextResponse.json(
+      { message: "User not found" },
+      { status: 404 }
+    );
+  }
+
+  return NextResponse.json(status);
 }
 

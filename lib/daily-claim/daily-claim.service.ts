@@ -66,9 +66,9 @@ function getRpcUrl(): string {
 }
 
 function getDailyContractAddress(): string {
-  const addr = process.env.TAPPER_DAILY_CONTRACT_ADDRESS;
+  const addr = process.env.NEXT_PUBLIC_TAPPER_VAULT_ADDRESS;
   if (!addr) {
-    throw new Error("TAPPER_DAILY_CONTRACT_ADDRESS must be set for daily claim");
+    throw new Error("NEXT_PUBLIC_TAPPER_VAULT_ADDRESS must be set for daily claim");
   }
   return addr.toLowerCase();
 }
@@ -105,6 +105,34 @@ async function rpcCall<T>(
 }
 
 const DEFAULT_CHAIN_ID = 8453; // Base mainnet
+
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+export interface DailyClaimStatus {
+  can_claim_daily: boolean;
+  last_claim_at: string | null;
+}
+
+export async function getDailyClaimStatus(
+  auth: DailyClaimAuthUser,
+  chainId: number = DEFAULT_CHAIN_ID
+): Promise<DailyClaimStatus | null> {
+  const user = await getUserForDailyClaimByFid(auth.fid);
+  if (!user) return null;
+
+  const now = new Date();
+  const twentyFourHoursAgo = new Date(now.getTime() - TWENTY_FOUR_HOURS_MS);
+  const lastClaim = await getLastDailyClaimSince(
+    user.id,
+    chainId,
+    twentyFourHoursAgo
+  );
+
+  return {
+    can_claim_daily: !lastClaim,
+    last_claim_at: lastClaim ? lastClaim.claimedAt.toISOString() : null,
+  };
+}
 
 export async function verifyAndApplyDailyClaim(
   auth: DailyClaimAuthUser,

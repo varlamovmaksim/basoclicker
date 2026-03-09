@@ -20,7 +20,7 @@ export const farcasterConfig = {
     description: "Collect points and climb the leaderboard.",
     screenshotUrls: [`${ROOT_URL}/logo.png`],
     iconUrl: `${ROOT_URL}/favicon.png`,
-    splashImageUrl: `${ROOT_URL}/logo.png`,
+    splashImageUrl: `${ROOT_URL}/symbol.png`,
     splashBackgroundColor: "#000000",
     homeUrl: ROOT_URL,
     primaryCategory: "games",

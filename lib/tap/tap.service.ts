@@ -11,6 +11,7 @@ import {
   getUserByIdForUpdate,
   getUserByFid,
   setUserEnergy,
+  setWalletIfMissing,
   updateUserAfterIdleMining,
 } from "@/lib/user/user.repository";
 import { tapConfig } from "@/lib/tap/config";
@@ -192,15 +193,21 @@ export interface StartSessionResult {
 /**
  * Create or get user, create a new session, return session_id and initial state.
  * Idle mining and stats are computed in the DB in one round-trip; booster list is fetched separately.
+ * When walletAddress is provided (e.g. from Wagmi in Base miniapp), sets user.wallet_address if currently null.
  */
 export async function startSession(
   auth: AuthUserForTap,
-  deviceFingerprint?: string | null
+  deviceFingerprint?: string | null,
+  walletAddress?: string | null
 ): Promise<StartSessionResult> {
   const user = await getOrCreateUserByFid(auth.fid, {
     username: auth.username,
     displayName: auth.displayName,
   });
+
+  if (walletAddress != null) {
+    await setWalletIfMissing(user.id, walletAddress);
+  }
 
   return await runInTransaction(async (tx) => {
     const result = await startSessionWithIdleMiningInDb(

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { useAccount } from "wagmi";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { useMiniApp } from "@/app/providers/MiniAppProvider";
 
@@ -161,7 +162,8 @@ function getInitialStoredState(): StoredTapState | null {
 }
 
 export function useTapGame(): UseTapGameReturn {
-  const { context } = useMiniApp();
+  const { context, isReady } = useMiniApp();
+  const { address: walletAddress } = useAccount();
   const stored = getInitialStoredState();
   const [serverBalance, setServerBalance] = useState(stored?.serverBalance ?? 0);
   const [localTapDelta, setLocalTapDelta] = useState(stored?.localTapDelta ?? 0);
@@ -243,6 +245,8 @@ export function useTapGame(): UseTapGameReturn {
       if (context.user.displayName != null)
         body.display_name = context.user.displayName;
     }
+    if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))
+      body.wallet_address = walletAddress;
     const res = await fetch(`${base}/api/auth/session`, {
       method: "POST",
       headers: {
@@ -299,7 +303,7 @@ export function useTapGame(): UseTapGameReturn {
     setError(null);
     logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
     return true;
-  }, [getToken, context]);
+  }, [getToken, context, walletAddress]);
 
   const fetchState = useCallback(async (): Promise<void> => {
     const token = await getToken();
@@ -715,6 +719,8 @@ export function useTapGame(): UseTapGameReturn {
   const sessionFetchPromiseRef = useRef<Promise<boolean> | null>(null);
   const sessionFetchClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    // In production, wait for miniapp context (and thus username/display_name) before creating session
+    if (!IS_DEV && !isReady) return;
     if (sessionFetchClearTimeoutRef.current) {
       clearTimeout(sessionFetchClearTimeoutRef.current);
       sessionFetchClearTimeoutRef.current = null;
@@ -741,7 +747,7 @@ export function useTapGame(): UseTapGameReturn {
         if (IS_DEV) setDebugTimerScheduled(false);
       }
     };
-  }, [fetchSession]);
+  }, [fetchSession, isReady]);
 
   // Tick every second so displayEnergy (and energy bar) updates in near real time
   useEffect(() => {

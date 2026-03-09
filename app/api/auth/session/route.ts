@@ -17,6 +17,7 @@ export async function POST(
   let deviceFingerprint: string | undefined;
   let username: string | null | undefined;
   let displayName: string | null | undefined;
+  let walletAddress: string | undefined;
   try {
     const body = await request.json().catch(() => null);
     if (body != null && typeof body === "object") {
@@ -28,6 +29,10 @@ export async function POST(
       if (b.display_name !== undefined)
         displayName =
           typeof b.display_name === "string" ? b.display_name : null;
+      if (b.wallet_address !== undefined && typeof b.wallet_address === "string") {
+        const addr = b.wallet_address;
+        if (/^0x[a-fA-F0-9]{40}$/.test(addr)) walletAddress = addr;
+      }
     }
   } catch {
     // optional body
@@ -35,7 +40,8 @@ export async function POST(
 
   const result = await startSession(
     { fid: auth.fid, username, displayName },
-    deviceFingerprint
+    deviceFingerprint,
+    walletAddress
   );
   return NextResponse.json(result);
 }

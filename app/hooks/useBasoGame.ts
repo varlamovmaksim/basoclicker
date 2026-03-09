@@ -6,6 +6,13 @@ import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
 import { msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
+
+const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+interface DailyClaimStatusFromApi {
+  can_claim_daily: boolean;
+  last_claim_at: string | null;
+}
 import { pickNextDonutColor } from "../../lib/baso/donut";
 import {
   getVaultAddress,
@@ -166,6 +173,58 @@ export function useBasoGame(): UseBasoGameReturn {
     persisted?.appliedReferralCode ?? null
   );
 
+  const [dailyClaimStatus, setDailyClaimStatus] = useState<DailyClaimStatusFromApi | null>(null);
+  const [countdownTick, setCountdownTick] = useState(0);
+
+  const fetchDailyStatus = useCallback(
+    async (chainId: number = 8453) => {
+      const token = await getToken();
+      if (!token) return;
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      try {
+        const res = await fetch(`${base}/api/v1/daily-claim?chain_id=${chainId}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...getDevAuthHeaders(),
+          },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as DailyClaimStatusFromApi;
+        if (typeof data.can_claim_daily === "boolean") {
+          setDailyClaimStatus({
+            can_claim_daily: data.can_claim_daily,
+            last_claim_at: typeof data.last_claim_at === "string" ? data.last_claim_at : null,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [getToken]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    getToken().then((t) => {
+      if (!cancelled && t) fetchDailyStatus(walletChainId ?? 8453);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, walletChainId, fetchDailyStatus]);
+
+  useEffect(() => {
+    if (
+      !dailyClaimStatus ||
+      dailyClaimStatus.can_claim_daily ||
+      !dailyClaimStatus.last_claim_at
+    ) {
+      return;
+    }
+    const interval = setInterval(() => setCountdownTick((n) => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [dailyClaimStatus]);
+
   useEffect(() => {
     const data: BasoPersisted = {
       skinId,
@@ -238,8 +297,24 @@ export function useBasoGame(): UseBasoGameReturn {
   );
 
   const today = todayKeyLocal();
-  const gmAvailable = lastGMDay !== today;
-  const dailyTimeLeft = gmAvailable ? msToHHMM(timeToMidnightMs()) : "";
+  const gmAvailable =
+    dailyClaimStatus !== null
+      ? dailyClaimStatus.can_claim_daily
+      : lastGMDay !== today;
+  const dailyTimeLeft = useMemo(() => {
+    void countdownTick; // force re-run every second while in cooldown
+    if (dailyClaimStatus) {
+      if (dailyClaimStatus.can_claim_daily) return "";
+      if (dailyClaimStatus.last_claim_at) {
+        const nextAt =
+          new Date(dailyClaimStatus.last_claim_at).getTime() + DAILY_COOLDOWN_MS;
+        const ms = nextAt - Date.now();
+        return ms > 0 ? msToHHMM(ms) : "";
+      }
+      return "";
+    }
+    return gmAvailable ? msToHHMM(timeToMidnightMs()) : "";
+  }, [dailyClaimStatus, countdownTick, gmAvailable]);
 
   const doGM = useCallback(async () => {
     if (!gmAvailable) {
@@ -292,6 +367,7 @@ export function useBasoGame(): UseBasoGameReturn {
       if (data.ok && data.balance != null) {
         setLastGMDay(today);
         await refreshState();
+        await fetchDailyStatus(walletChainId ?? 8453);
         showToast(`+1000 points! Balance: ${data.balance.toLocaleString()}`);
       } else {
         const msg =
@@ -305,6 +381,7 @@ export function useBasoGame(): UseBasoGameReturn {
         showToast(msg);
         if (data.reason === "already_claimed_today" || data.reason === "tx_already_used") {
           setLastGMDay(today);
+          fetchDailyStatus(walletChainId ?? 8453);
         }
       }
     } catch (e) {
@@ -320,6 +397,7 @@ export function useBasoGame(): UseBasoGameReturn {
     getToken,
     refreshState,
     walletChainId,
+    fetchDailyStatus,
   ]);
 
   const referralLink = useMemo(
