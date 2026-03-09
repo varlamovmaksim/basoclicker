@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { useBasoGame } from "../hooks/useBasoGame";
+import { useMiniApp } from "../providers/MiniAppProvider";
 import { clamp, formatCompact } from "../../lib/baso/utils";
 import { BasoMascotSVG } from "@/app/components/BasoMascotSVG";
 import { TopHeader } from "@/app/components/TopHeader";
@@ -16,12 +17,25 @@ import { FriendsView } from "@/app/components/FriendsView";
 import { ShopView } from "@/app/components/ShopView";
 import { DevView } from "@/app/components/DevView";
 import { DevTapPanel } from "@/app/components/DevTapPanel";
+import { LoadingScreen } from "@/app/components/LoadingScreen";
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
 export function HomeView(): React.ReactElement {
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const { isReady: miniappReady } = useMiniApp();
   const game = useBasoGame();
+
+  const sessionReady = !game.tapState.isLoading && game.tapState.sessionId != null;
+  const paramsReady =
+    game.tapState.energyServerTime > 0 && game.tapState.energyRegenPerSec >= 0;
+  const readyWithSession = sessionReady && paramsReady;
+  const finishedWithError = !game.tapState.isLoading && game.tapState.error != null;
+  const showApp = miniappReady && (readyWithSession || finishedWithError);
+
+  if (!showApp) {
+    return <LoadingScreen />;
+  }
 
   const overlayOpen = game.tab !== "home";
   const overlayTitle =
@@ -177,8 +191,6 @@ export function HomeView(): React.ReactElement {
             )}
             {game.tab === "shop" && (
               <ShopView
-                shopTab={game.shopTab}
-                setShopTab={game.setShopTab}
                 state={game.tapState}
                 score={game.score}
                 refreshState={game.refreshState}
