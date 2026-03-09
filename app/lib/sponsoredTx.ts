@@ -36,7 +36,7 @@ type EIP1193Request = (args: { method: string; params?: unknown[] }) => Promise<
 
 /**
  * Send batched calls with paymaster sponsorship (gasless on Base).
- * Returns bundle id for status polling. Throws if wallet or paymaster rejects.
+ * Uses EIP-5792 v2.0.0 (Base requires this version). Returns bundle id for status polling.
  */
 export async function sendSponsoredCalls(
   request: EIP1193Request,
@@ -46,31 +46,33 @@ export async function sendSponsoredCalls(
   paymasterUrl: string
 ): Promise<{ id: string }> {
   const chainIdHex = chainId === BASE_CHAIN_ID ? BASE_CHAIN_ID_HEX : `0x${chainId.toString(16)}`;
+  const payload = {
+    version: "2.0.0" as const,
+    chainId: chainIdHex,
+    from,
+    atomicRequired: false,
+    calls: calls.map((c) => ({
+      to: c.to,
+      data: c.data,
+      value: c.value != null && c.value > BigInt(0) ? `0x${c.value.toString(16)}` : "0x0",
+    })),
+    capabilities: {
+      paymasterService: {
+        url: paymasterUrl,
+      },
+    },
+  };
+
   const result = (await request({
     method: "wallet_sendCalls",
-    params: [
-      {
-        version: "1.0",
-        chainId: chainIdHex,
-        from,
-        calls: calls.map((c) => ({
-          to: c.to,
-          data: c.data,
-          ...(c.value != null && c.value > BigInt(0) ? { value: `0x${c.value.toString(16)}` } : {}),
-        })),
-        capabilities: {
-          paymasterService: {
-            url: paymasterUrl,
-          },
-        },
-      },
-    ],
-  })) as { id?: string };
+    params: [payload],
+  })) as { id?: string; batchId?: string } | string;
 
-  if (!result?.id || typeof result.id !== "string") {
+  const id = typeof result === "string" ? result : result?.id ?? result?.batchId;
+  if (!id || typeof id !== "string") {
     throw new Error("wallet_sendCalls did not return bundle id");
   }
-  return { id: result.id };
+  return { id };
 }
 
 /**
@@ -85,16 +87,15 @@ export async function getCallsStatusTxHash(
 ): Promise<string | null> {
   const maxAttempts = options?.maxAttempts ?? 60;
   const intervalMs = options?.intervalMs ?? 2000;
-  const chainIdHex = chainId === BASE_CHAIN_ID ? BASE_CHAIN_ID_HEX : `0x${chainId.toString(16)}`;
+  void chainId;
 
   for (let i = 0; i < maxAttempts; i++) {
     const status = (await request({
       method: "wallet_getCallsStatus",
-      params: [chainIdHex, [bundleId]],
-    })) as {
-      status?: number;
-      receipts?: Array<{ transactionHash?: string }>;
-    }[];
+      params: [bundleId],
+    })) as
+      | { status?: number; receipts?: Array<{ transactionHash?: string }> }
+      | Array<{ status?: number; receipts?: Array<{ transactionHash?: string }> }>;
 
     const item = Array.isArray(status) ? status[0] : status;
     if (!item) continue;

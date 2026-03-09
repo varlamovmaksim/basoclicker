@@ -50,12 +50,23 @@ type RpcTransaction = {
   input: string;
 };
 
+type RpcLog = {
+  address: string;
+  topics: string[];
+  data?: string;
+};
+
 type RpcReceipt = {
   transactionHash: string;
   status?: string | null;
+  logs?: RpcLog[] | null;
 };
 
-const RECORD_DAILY_SELECTOR = "0xf49c3a0f";
+/** Selector for recordDaily() — must match TapperVault.recordDaily(). */
+const RECORD_DAILY_SELECTOR = "0xd9c65c6c";
+/** topic0 for event DailyClaimed(address indexed). Used when tx is a batch (e.g. EIP-5792). */
+const DAILY_CLAIMED_TOPIC = "0xeedba3f8eadb1bd70d57e57e5b48dff6945eb6dc462b930fd0175f327821edeb";
+const DAILY_CLAIMED_TOPIC_HEX = DAILY_CLAIMED_TOPIC.slice(2).toLowerCase();
 
 function getRpcUrl(): string {
   const url = process.env.BASE_RPC_URL ?? process.env.CHAIN_RPC_URL;
@@ -136,10 +147,14 @@ export async function getDailyClaimStatus(
 
 export async function verifyAndApplyDailyClaim(
   auth: DailyClaimAuthUser,
-  txHash: string,
+  txHashRaw: string,
   chainId: number = DEFAULT_CHAIN_ID
 ): Promise<DailyClaimResult> {
-  if (typeof txHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+  const txHash =
+    typeof txHashRaw === "string"
+      ? txHashRaw.trim().toLowerCase()
+      : "";
+  if (!/^0x[0-9a-f]{64}$/.test(txHash)) {
     return { ok: false, reason: "invalid_tx_hash" };
   }
 
@@ -167,17 +182,31 @@ export async function verifyAndApplyDailyClaim(
     return { ok: false, reason: "tx_failed" };
   }
 
-  if (!tx.to || tx.to.toLowerCase() !== contractAddress) {
-    return { ok: false, reason: "invalid_contract" };
+  let claimant: string;
+  const txTo = (tx.to ?? "").toLowerCase();
+  const rawInput = (tx.input ?? "").toLowerCase();
+  const input = rawInput.startsWith("0x") ? rawInput : "0x" + rawInput;
+  const selectorMatch = input.slice(0, 10) === RECORD_DAILY_SELECTOR;
+
+  if (txTo === contractAddress && selectorMatch) {
+    claimant = (tx.from ?? "").toLowerCase();
+  } else {
+    const logs = (receipt as { logs?: RpcLog[]; log?: RpcLog[] }).logs ??
+      (receipt as { log?: RpcLog[] }).log ??
+      [];
+    const dailyLog = logs.find((log) => {
+      const addr = (log.address ?? "").toLowerCase();
+      const t0 = ((log.topics?.[0] ?? "").toLowerCase()).replace(/^0x/, "");
+      return addr === contractAddress && t0 === DAILY_CLAIMED_TOPIC_HEX;
+    });
+    if (!dailyLog?.topics?.[1]) {
+      return { ok: false, reason: txTo === contractAddress ? "invalid_method" : "invalid_contract" };
+    }
+    const topic1 = (dailyLog.topics[1] ?? "").toLowerCase().replace(/^0x/, "");
+    claimant = ("0x" + topic1.slice(-40)).toLowerCase();
   }
 
-  const input = tx.input ?? "";
-  if (typeof input !== "string" || !input.startsWith(RECORD_DAILY_SELECTOR)) {
-    return { ok: false, reason: "invalid_method" };
-  }
-
-  const from = (tx.from ?? "").toLowerCase();
-  if (!from) {
+  if (!claimant) {
     return { ok: false, reason: "tx_not_found" };
   }
 
@@ -193,9 +222,9 @@ export async function verifyAndApplyDailyClaim(
 
     const finalWallet =
       user.walletAddress ??
-      (await setWalletIfMissing(user.id, from, txClient));
+      (await setWalletIfMissing(user.id, claimant, txClient));
 
-    if (finalWallet && finalWallet.toLowerCase() !== from) {
+    if (finalWallet && finalWallet.toLowerCase() !== claimant) {
       return { ok: false, reason: "wallet_mismatch" } as DailyClaimResult;
     }
 

@@ -328,33 +328,45 @@ export function useBasoGame(): UseBasoGameReturn {
 
     try {
       let hash: string;
+      const tryGasless =
+        useSponsored && paymasterUrl && walletAddress;
 
-      if (useSponsored && paymasterUrl && walletAddress) {
-        showToast("Confirm daily (gasless)…");
-        const recordDailyData = encodeFunctionData({
-          abi: TAPPER_VAULT_ABI,
-          functionName: "recordDaily",
-        });
-        const { id } = await sendSponsoredCalls(
-          request,
-          walletAddress,
-          chainId,
-          [{ to: vaultAddr, data: recordDailyData }],
-          paymasterUrl
-        );
-        showToast("Waiting for confirmation…");
-        const txHash = await getCallsStatusTxHash(request, id, chainId);
-        if (!txHash) throw new Error("Sponsored daily tx failed or timed out");
-        hash = txHash;
-      } else {
+      async function doWriteContract(): Promise<string> {
+        if (!walletClient || !publicClient) throw new Error("Wallet not connected");
         showToast("Confirm daily in wallet…");
-        hash = await walletClient.writeContract({
-          address: vaultAddr,
+        const h = await walletClient.writeContract({
+          address: vaultAddr as `0x${string}`,
           abi: TAPPER_VAULT_ABI,
           functionName: "recordDaily",
         });
         showToast("Waiting for confirmation…");
-        await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` });
+        await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+        return h;
+      }
+
+      if (tryGasless) {
+        try {
+          showToast("Confirm daily (gasless)…");
+          const recordDailyData = encodeFunctionData({
+            abi: TAPPER_VAULT_ABI,
+            functionName: "recordDaily",
+          });
+          const { id } = await sendSponsoredCalls(
+            request,
+            walletAddress,
+            chainId,
+            [{ to: vaultAddr, data: recordDailyData }],
+            paymasterUrl
+          );
+          showToast("Waiting for confirmation…");
+          const txHash = await getCallsStatusTxHash(request, id, chainId);
+          if (!txHash) throw new Error("Sponsored daily tx failed or timed out");
+          hash = txHash;
+        } catch {
+          hash = await doWriteContract();
+        }
+      } else {
+        hash = await doWriteContract();
       }
 
       const token = await getToken();
@@ -386,14 +398,23 @@ export function useBasoGame(): UseBasoGameReturn {
         await fetchDailyStatus(walletChainId ?? 8453);
         showToast(`+1000 points! Balance: ${data.balance.toLocaleString()}`);
       } else {
+        const reason = data.reason ?? "unknown";
         const msg =
-          data.reason === "already_claimed_today"
+          reason === "already_claimed_today"
             ? "Already claimed today"
-            : data.reason === "tx_already_used"
+            : reason === "tx_already_used"
               ? "Tx already used"
-              : data.reason === "wallet_mismatch"
+              : reason === "wallet_mismatch"
                 ? "Use the same wallet"
-                : "Claim failed";
+                : reason === "tx_not_found"
+                  ? "Tx not found (wait or wrong chain?)"
+                  : reason === "invalid_contract"
+                    ? "Wrong contract (check vault address)"
+                    : reason === "invalid_method"
+                      ? "Wrong call (recordDaily)"
+                      : reason === "rpc_error"
+                        ? "RPC error (check BASE_RPC_URL)"
+                        : `Claim failed: ${reason}`;
         showToast(msg);
         if (data.reason === "already_claimed_today" || data.reason === "tx_already_used") {
           setLastGMDay(today);
