@@ -239,10 +239,30 @@ export function useTapGame(): UseTapGameReturn {
     }
     const base = getApiBase();
     const body: Record<string, unknown> = {};
-    if (!IS_DEV && context?.user) {
-      if (context.user.username != null)
+    const inMiniApp = await sdk.isInMiniApp();
+    if (inMiniApp) {
+      // In Base/miniapp: always use real SDK context for username/displayName (even when IS_DEV)
+      try {
+        const ctx = await sdk.context;
+        if (ctx?.user) {
+          if (ctx.user.username != null && ctx.user.username !== "")
+            body.username = ctx.user.username;
+          if (ctx.user.displayName != null && ctx.user.displayName !== "")
+            body.display_name = ctx.user.displayName;
+        }
+      } catch {
+        if (context?.user) {
+          if (context.user.username != null && context.user.username !== "")
+            body.username = context.user.username;
+          if (context.user.displayName != null && context.user.displayName !== "")
+            body.display_name = context.user.displayName;
+        }
+      }
+    } else if (IS_DEV && context?.user) {
+      // Not in miniapp but dev: use fake context from React state
+      if (context.user.username != null && context.user.username !== "")
         body.username = context.user.username;
-      if (context.user.displayName != null)
+      if (context.user.displayName != null && context.user.displayName !== "")
         body.display_name = context.user.displayName;
     }
     if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))

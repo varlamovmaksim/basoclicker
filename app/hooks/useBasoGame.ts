@@ -188,6 +188,12 @@ export function useBasoGame(): UseBasoGameReturn {
             ...getDevAuthHeaders(),
           },
         });
+        if (res.status === 404) {
+          // User not in DB yet → no claims, treat as can claim (don't rely on localStorage)
+          setDailyClaimStatus({ can_claim_daily: true, last_claim_at: null });
+          setLastGMDay(null);
+          return;
+        }
         if (!res.ok) return;
         const data = (await res.json()) as DailyClaimStatusFromApi;
         if (typeof data.can_claim_daily === "boolean") {
@@ -195,6 +201,7 @@ export function useBasoGame(): UseBasoGameReturn {
             can_claim_daily: data.can_claim_daily,
             last_claim_at: typeof data.last_claim_at === "string" ? data.last_claim_at : null,
           });
+          if (data.can_claim_daily) setLastGMDay(null);
         }
       } catch {
         // ignore
