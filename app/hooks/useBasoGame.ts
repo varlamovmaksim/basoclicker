@@ -367,7 +367,25 @@ export function useBasoGame(): UseBasoGameReturn {
           const txHash = await getCallsStatusTxHash(request, id, chainId);
           if (!txHash) throw new Error("Sponsored daily tx failed or timed out");
           hash = txHash;
-        } catch {
+        } catch (gaslessErr) {
+          const errMsg =
+            gaslessErr instanceof Error
+              ? gaslessErr.message
+              : typeof (gaslessErr as { message?: string })?.message === "string"
+                ? (gaslessErr as { message: string }).message
+                : "";
+          const code = typeof (gaslessErr as { code?: number })?.code === "number"
+            ? (gaslessErr as { code: number }).code
+            : undefined;
+          const isUserReject =
+            code === 4001 || /reject|cancel|denied|отмен|отказ|user denied/i.test(errMsg);
+          if (isUserReject) return;
+          const isFundsOrGenerationError =
+            /insufficient|funds|средств|транзакци|transaction generation|generation error|ошибка генерации/i.test(errMsg);
+          if (isFundsOrGenerationError) {
+            showToast("Need a little ETH on Base for gas, or gasless not available");
+            return;
+          }
           hash = await doWriteContract();
         }
       } else {
@@ -427,7 +445,10 @@ export function useBasoGame(): UseBasoGameReturn {
         }
       }
     } catch (e) {
+      const code = typeof (e as { code?: number })?.code === "number" ? (e as { code: number }).code : undefined;
       const msg = e instanceof Error ? e.message : "Daily claim failed";
+      const isUserReject = code === 4001 || /reject|cancel|denied|отмен|отказ|user denied/i.test(String(msg));
+      if (isUserReject) return;
       showToast(msg.slice(0, 40));
     }
   }, [
