@@ -7,7 +7,6 @@ import { clamp, formatCompact } from "../../lib/baso/utils";
 import { BasoMascotSVG } from "@/app/components/BasoMascotSVG";
 import { TopHeader } from "@/app/components/TopHeader";
 import { SubPageShell } from "@/app/components/SubPageShell";
-import { DonateSheet } from "@/app/components/DonateSheet";
 import { Card } from "@/app/components/shared/Card";
 import { ProgressBar } from "@/app/components/shared/ProgressBar";
 import { Toast } from "@/app/components/shared/Toast";
@@ -58,7 +57,7 @@ export function HomeView(): React.ReactElement {
               onOpenDailyGM={game.doGM}
               dailyStatus={game.gmAvailable ? "Available" : "Done"}
               dailyTimeLeft={game.dailyTimeLeft}
-              onDonateHalf={() => game.openDonatePreset(0.5)}
+              onDonateHalf={game.donateHalf}
             />
 
             <div className="mt-5 text-center">
@@ -68,7 +67,7 @@ export function HomeView(): React.ReactElement {
                   className="text-xl leading-none"
                   onClick={(e) => {
                     e.preventDefault();
-                    game.openDonate();
+                    game.donateHalf();
                   }}
                   aria-label="donate-usdc"
                 >
@@ -215,17 +214,6 @@ export function HomeView(): React.ReactElement {
           </SubPageShell>
         )}
 
-        {game.donateOpen && (
-          <DonateSheet
-            title="Donut some USDC"
-            amount={game.donateAmount}
-            onAmount={game.setDonateAmount}
-            onClose={game.closeDonate}
-            onMax={game.setMaxDonate}
-            onSend={game.sendDonate}
-            balance={game.usdcBalance}
-          />
-        )}
       </div>
 
       {game.toast && <Toast text={game.toast} />}

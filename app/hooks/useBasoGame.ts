@@ -5,7 +5,7 @@ import { useAccount, usePublicClient, useReadContract, useWalletClient } from "w
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
-import { msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
+import { msToHHMM, safeParse, todayKeyLocal, uid } from "../../lib/baso/utils";
 
 const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -22,7 +22,7 @@ import {
   TOKEN_DECIMALS,
 } from "@/app/lib/contracts";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
-import { formatUnits, parseUnits } from "viem";
+import { parseUnits } from "viem";
 
 export interface Pop {
   id: string;
@@ -59,15 +59,8 @@ export interface UseBasoGameReturn {
   skinStageClass: string;
   setSkin: (id: string) => void;
 
-  donateOpen: boolean;
-  donateAmount: string;
-  usdcBalance: number;
-  openDonate: () => void;
-  openDonatePreset: (amount: number) => void;
-  closeDonate: () => void;
-  setDonateAmount: (v: string) => void;
-  setMaxDonate: () => void;
-  sendDonate: () => Promise<void>;
+  /** Prepare and send approve + donate(0.5 USDC) transaction. */
+  donateHalf: () => Promise<void>;
 
   pops: Pop[];
   addPop: (clientX: number, clientY: number, bounds: DOMRect, text: string) => void;
@@ -147,17 +140,6 @@ export function useBasoGame(): UseBasoGameReturn {
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const tokenAddr = getTokenAddress();
-  const { data: tokenBalanceRaw } = useReadContract({
-    address: tokenAddr ?? undefined,
-    abi: ERC20_ABI,
-    functionName: "balanceOf",
-    args: walletAddress ? [walletAddress] : undefined,
-  });
-  const usdcBalanceFromChain =
-    tokenBalanceRaw != null && tokenAddr
-      ? Number(formatUnits(tokenBalanceRaw, TOKEN_DECIMALS))
-      : null;
-
   const [tab, setTab] = useState<BasoTabKey>("home");
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
 
@@ -173,7 +155,11 @@ export function useBasoGame(): UseBasoGameReturn {
     persisted?.appliedReferralCode ?? null
   );
 
-  const [dailyClaimStatus, setDailyClaimStatus] = useState<DailyClaimStatusFromApi | null>(null);
+  // Start as "can claim" so we never show Done until server explicitly says otherwise
+  const [dailyClaimStatus, setDailyClaimStatus] = useState<DailyClaimStatusFromApi>({
+    can_claim_daily: true,
+    last_claim_at: null,
+  });
   const [countdownTick, setCountdownTick] = useState(0);
 
   const fetchDailyStatus = useCallback(
@@ -188,13 +174,11 @@ export function useBasoGame(): UseBasoGameReturn {
             ...getDevAuthHeaders(),
           },
         });
-        if (res.status === 404) {
-          // User not in DB yet → no claims, treat as can claim (don't rely on localStorage)
+        if (res.status === 404 || !res.ok) {
           setDailyClaimStatus({ can_claim_daily: true, last_claim_at: null });
           setLastGMDay(null);
           return;
         }
-        if (!res.ok) return;
         const data = (await res.json()) as DailyClaimStatusFromApi;
         if (typeof data.can_claim_daily === "boolean") {
           setDailyClaimStatus({
@@ -204,7 +188,7 @@ export function useBasoGame(): UseBasoGameReturn {
           if (data.can_claim_daily) setLastGMDay(null);
         }
       } catch {
-        // ignore
+        setDailyClaimStatus({ can_claim_daily: true, last_claim_at: null });
       }
     },
     [getToken]
@@ -221,11 +205,7 @@ export function useBasoGame(): UseBasoGameReturn {
   }, [getToken, walletChainId, fetchDailyStatus]);
 
   useEffect(() => {
-    if (
-      !dailyClaimStatus ||
-      dailyClaimStatus.can_claim_daily ||
-      !dailyClaimStatus.last_claim_at
-    ) {
+    if (dailyClaimStatus.can_claim_daily || !dailyClaimStatus.last_claim_at) {
       return;
     }
     const interval = setInterval(() => setCountdownTick((n) => n + 1), 1000);
@@ -304,19 +284,15 @@ export function useBasoGame(): UseBasoGameReturn {
   );
 
   const today = todayKeyLocal();
-  const gmAvailable =
-    dailyClaimStatus !== null ? dailyClaimStatus.can_claim_daily : true;
+  const gmAvailable = dailyClaimStatus.can_claim_daily;
   const dailyTimeLeft = useMemo(() => {
     void countdownTick; // force re-run every second while in cooldown
-    if (dailyClaimStatus) {
-      if (dailyClaimStatus.can_claim_daily) return "";
-      if (dailyClaimStatus.last_claim_at) {
-        const nextAt =
-          new Date(dailyClaimStatus.last_claim_at).getTime() + DAILY_COOLDOWN_MS;
-        const ms = nextAt - Date.now();
-        return ms > 0 ? msToHHMM(ms) : "";
-      }
-      return "";
+    if (dailyClaimStatus.can_claim_daily) return "";
+    if (dailyClaimStatus.last_claim_at) {
+      const nextAt =
+        new Date(dailyClaimStatus.last_claim_at).getTime() + DAILY_COOLDOWN_MS;
+      const ms = nextAt - Date.now();
+      return ms > 0 ? msToHHMM(ms) : "";
     }
     return "";
   }, [dailyClaimStatus, countdownTick]);
@@ -443,51 +419,20 @@ export function useBasoGame(): UseBasoGameReturn {
     [showToast]
   );
 
-  const [donateOpen, setDonateOpen] = useState(false);
-  const [donateAmount, setDonateAmount] = useState<string>("");
-  const usdcBalance = usdcBalanceFromChain ?? 23.41;
+  const DONATE_AMOUNT_USDC = 0.5;
 
-  const openDonate = useCallback(() => {
-    setDonateAmount("");
-    setDonateOpen(true);
-  }, []);
-
-  const openDonatePreset = useCallback((amount: number) => {
-    setDonateAmount(amount.toFixed(2));
-    setDonateOpen(true);
-  }, []);
-
-  const closeDonate = useCallback(() => {
-    setDonateOpen(false);
-  }, []);
-
-  const setMaxDonate = useCallback(() => {
-    setDonateAmount(usdcBalance.toFixed(2));
-  }, [usdcBalance]);
-
-  const sendDonate = useCallback(async () => {
-    const amt = Number(donateAmount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      showToast("Enter amount");
-      return;
-    }
-    if (amt > usdcBalance) {
-      showToast("Insufficient balance");
-      return;
-    }
+  const donateHalf = useCallback(async () => {
     const vaultAddr = getVaultAddress();
     if (!vaultAddr || !tokenAddr || !walletClient || !publicClient) {
       if (!vaultAddr || !tokenAddr) {
         showToast("Donate not configured (mock)");
-        await new Promise((r) => setTimeout(r, 900));
-        setDonateOpen(false);
         return;
       }
       showToast("Connect wallet to donate");
       return;
     }
+    const amountWei = parseUnits(DONATE_AMOUNT_USDC.toFixed(2), TOKEN_DECIMALS);
     try {
-      const amountWei = parseUnits(donateAmount, TOKEN_DECIMALS);
       showToast("Approve in wallet…");
       const approveHash = await walletClient.writeContract({
         address: tokenAddr,
@@ -505,19 +450,11 @@ export function useBasoGame(): UseBasoGameReturn {
       });
       await publicClient.waitForTransactionReceipt({ hash: donateHash });
       showToast("Donation sent");
-      setDonateOpen(false);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Donation failed";
       showToast(msg.slice(0, 40));
     }
-  }, [
-    donateAmount,
-    usdcBalance,
-    showToast,
-    tokenAddr,
-    walletClient,
-    publicClient,
-  ]);
+  }, [showToast, tokenAddr, walletClient, publicClient]);
 
   const onTap = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -641,15 +578,7 @@ export function useBasoGame(): UseBasoGameReturn {
     skinStageClass: skin.stageClass,
     setSkin,
 
-    donateOpen,
-    donateAmount,
-    usdcBalance,
-    openDonate,
-    openDonatePreset,
-    closeDonate,
-    setDonateAmount,
-    setMaxDonate,
-    sendDonate,
+    donateHalf,
 
     pops,
     addPop,
