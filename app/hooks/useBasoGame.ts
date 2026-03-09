@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { useAccount, useConfig, usePublicClient, useWalletClient } from "wagmi";
+import { getCallsStatus, sendCalls } from "@wagmi/core";
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
@@ -22,12 +23,6 @@ import {
   TOKEN_DECIMALS,
 } from "@/app/lib/contracts";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
-import {
-  getPaymasterServiceUrl,
-  sendSponsoredCalls,
-  getCallsStatusTxHash,
-  walletSupportsPaymaster,
-} from "@/app/lib/sponsoredTx";
 import { encodeFunctionData, parseUnits } from "viem";
 
 export interface Pop {
@@ -147,9 +142,10 @@ export function useBasoGame(): UseBasoGameReturn {
     revertOptimisticPurchaseDeduction,
   } = useTapGame();
 
-  const { address: walletAddress, chainId: walletChainId } = useAccount();
+  const { address: walletAddress, chainId: walletChainId, connector } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
+  const config = useConfig();
   const tokenAddr = getTokenAddress();
   const [tab, setTab] = useState<BasoTabKey>("home");
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
@@ -325,16 +321,13 @@ export function useBasoGame(): UseBasoGameReturn {
       return;
     }
     const chainId = walletChainId ?? 8453;
-    const paymasterUrl = getPaymasterServiceUrl(chainId);
-    const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
-      walletClient.request(args as Parameters<typeof walletClient.request>[0]);
-    const useSponsored =
-      paymasterUrl && walletAddress && (await walletSupportsPaymaster(request, chainId));
+    const connectorToUse =
+      connector && (config.connectors.find((c) => c.id === connector.id) ?? connector);
+    const tryWagmiCalls =
+      walletAddress && connectorToUse;
 
     try {
       let hash: string;
-      const tryGasless =
-        useSponsored && paymasterUrl && walletAddress;
 
       async function doWriteContract(): Promise<string> {
         if (!walletClient || !publicClient) throw new Error("Wallet not connected");
@@ -349,23 +342,34 @@ export function useBasoGame(): UseBasoGameReturn {
         return h;
       }
 
-      if (tryGasless) {
+      if (tryWagmiCalls && connectorToUse) {
         try {
-          showToast("Confirm daily (gasless)…");
+          showToast("Confirm daily…");
           const recordDailyData = encodeFunctionData({
             abi: TAPPER_VAULT_ABI,
             functionName: "recordDaily",
           });
-          const { id } = await sendSponsoredCalls(
-            request,
-            walletAddress,
+          // EIP-5792 batch: one call (recordDaily). No paymaster/capabilities in code; gas = account or Base infra.
+          const { id } = await sendCalls(config, {
+            account: walletAddress,
+            calls: [{ to: vaultAddr, data: recordDailyData }],
             chainId,
-            [{ to: vaultAddr, data: recordDailyData }],
-            paymasterUrl
-          );
+            connector: connectorToUse,
+          });
           showToast("Waiting for confirmation…");
-          const txHash = await getCallsStatusTxHash(request, id, chainId);
-          if (!txHash) throw new Error("Sponsored daily tx failed or timed out");
+          const maxAttempts = 60;
+          const intervalMs = 2000;
+          let txHash: string | null = null;
+          for (let i = 0; i < maxAttempts; i++) {
+            const status = await getCallsStatus(config, { id, connector: connectorToUse });
+            if (status.status === "success" && status.receipts?.[0]?.transactionHash) {
+              txHash = status.receipts[0].transactionHash;
+              break;
+            }
+            if (i === maxAttempts - 1) throw new Error("Daily tx failed or timed out");
+            await new Promise((r) => setTimeout(r, intervalMs));
+          }
+          if (!txHash) throw new Error("No receipt");
           hash = txHash;
         } catch (gaslessErr) {
           const errMsg =
@@ -462,6 +466,8 @@ export function useBasoGame(): UseBasoGameReturn {
     walletChainId,
     walletAddress,
     fetchDailyStatus,
+    config,
+    connector,
   ]);
 
   const referralLink = useMemo(
@@ -516,17 +522,14 @@ export function useBasoGame(): UseBasoGameReturn {
     }
     const chainId = walletChainId ?? 8453;
     const amountWei = parseUnits(DONATE_AMOUNT_USDC.toFixed(2), TOKEN_DECIMALS);
-    const paymasterUrl = getPaymasterServiceUrl(chainId);
-    const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
-      walletClient.request(args as Parameters<typeof walletClient.request>[0]);
-    const useSponsored =
-      paymasterUrl &&
-      walletAddress &&
-      (await walletSupportsPaymaster(request, chainId));
+    const connectorToUse =
+      connector && (config.connectors.find((c) => c.id === connector.id) ?? connector);
+    const tryWagmiCalls = walletAddress && connectorToUse;
 
     try {
-      if (useSponsored && paymasterUrl && walletAddress) {
-        showToast("Confirm donate (gasless)…");
+      if (tryWagmiCalls && connectorToUse) {
+        showToast("Confirm donate…");
+        // EIP-5792 batch: approve + donate. No paymaster in code; gas = account or Base infra.
         const approveData = encodeFunctionData({
           abi: ERC20_ABI,
           functionName: "approve",
@@ -537,20 +540,27 @@ export function useBasoGame(): UseBasoGameReturn {
           functionName: "donate",
           args: [amountWei],
         });
-        const { id } = await sendSponsoredCalls(
-          request,
-          walletAddress,
-          chainId,
-          [
+        const { id } = await sendCalls(config, {
+          account: walletAddress,
+          calls: [
             { to: tokenAddr, data: approveData },
             { to: vaultAddr, data: donateData },
           ],
-          paymasterUrl
-        );
+          chainId,
+          connector: connectorToUse,
+        });
         showToast("Waiting for confirmation…");
-        const txHash = await getCallsStatusTxHash(request, id, chainId);
-        if (!txHash) throw new Error("Sponsored donate failed or timed out");
-        showToast("Donation sent");
+        const maxAttempts = 60;
+        const intervalMs = 2000;
+        for (let i = 0; i < maxAttempts; i++) {
+          const status = await getCallsStatus(config, { id, connector: connectorToUse });
+          if (status.status === "success") {
+            showToast("Donation sent");
+            return;
+          }
+          if (i === maxAttempts - 1) throw new Error("Donate failed or timed out");
+          await new Promise((r) => setTimeout(r, intervalMs));
+        }
       } else {
         showToast("Approve in wallet…");
         const approveHash = await walletClient.writeContract({
@@ -571,10 +581,12 @@ export function useBasoGame(): UseBasoGameReturn {
         showToast("Donation sent");
       }
     } catch (e) {
+      const code = typeof (e as { code?: number })?.code === "number" ? (e as { code: number }).code : undefined;
       const msg = e instanceof Error ? e.message : "Donation failed";
+      if (code === 4001 || /reject|cancel|denied|отмен|отказ|user denied/i.test(String(msg))) return;
       showToast(msg.slice(0, 40));
     }
-  }, [showToast, tokenAddr, walletClient, publicClient, walletChainId, walletAddress]);
+  }, [showToast, tokenAddr, walletClient, publicClient, walletChainId, walletAddress, config, connector]);
 
   const onTap = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
