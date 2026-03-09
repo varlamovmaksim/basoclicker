@@ -22,7 +22,13 @@ import {
   TOKEN_DECIMALS,
 } from "@/app/lib/contracts";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
-import { parseUnits } from "viem";
+import {
+  getPaymasterServiceUrl,
+  sendSponsoredCalls,
+  getCallsStatusTxHash,
+  walletSupportsPaymaster,
+} from "@/app/lib/sponsoredTx";
+import { encodeFunctionData, parseUnits } from "viem";
 
 export interface Pop {
   id: string;
@@ -136,7 +142,7 @@ export function useBasoGame(): UseBasoGameReturn {
     revertOptimisticPurchaseDeduction,
   } = useTapGame();
 
-  const { address: _walletAddress, chainId: walletChainId } = useAccount();
+  const { address: walletAddress, chainId: walletChainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const tokenAddr = getTokenAddress();
@@ -313,15 +319,44 @@ export function useBasoGame(): UseBasoGameReturn {
       showToast("Connect wallet to claim daily");
       return;
     }
+    const chainId = walletChainId ?? 8453;
+    const paymasterUrl = getPaymasterServiceUrl();
+    const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
+      walletClient.request(args as Parameters<typeof walletClient.request>[0]);
+    const useSponsored =
+      paymasterUrl && walletAddress && (await walletSupportsPaymaster(request, chainId));
+
     try {
-      showToast("Confirm daily in wallet…");
-      const hash = await walletClient.writeContract({
-        address: vaultAddr,
-        abi: TAPPER_VAULT_ABI,
-        functionName: "recordDaily",
-      });
-      showToast("Waiting for confirmation…");
-      await publicClient.waitForTransactionReceipt({ hash });
+      let hash: string;
+
+      if (useSponsored && paymasterUrl && walletAddress) {
+        showToast("Confirm daily (gasless)…");
+        const recordDailyData = encodeFunctionData({
+          abi: TAPPER_VAULT_ABI,
+          functionName: "recordDaily",
+        });
+        const { id } = await sendSponsoredCalls(
+          request,
+          walletAddress,
+          chainId,
+          [{ to: vaultAddr, data: recordDailyData }],
+          paymasterUrl
+        );
+        showToast("Waiting for confirmation…");
+        const txHash = await getCallsStatusTxHash(request, id, chainId);
+        if (!txHash) throw new Error("Sponsored daily tx failed or timed out");
+        hash = txHash;
+      } else {
+        showToast("Confirm daily in wallet…");
+        hash = await walletClient.writeContract({
+          address: vaultAddr,
+          abi: TAPPER_VAULT_ABI,
+          functionName: "recordDaily",
+        });
+        showToast("Waiting for confirmation…");
+        await publicClient.waitForTransactionReceipt({ hash: hash as `0x${string}` });
+      }
+
       const token = await getToken();
       if (!token) {
         showToast("Session expired");
@@ -337,7 +372,7 @@ export function useBasoGame(): UseBasoGameReturn {
         },
         body: JSON.stringify({
           tx_hash: hash,
-          chain_id: walletChainId ?? 8453,
+          chain_id: chainId,
         }),
       });
       const data = (await res.json()) as {
@@ -378,6 +413,7 @@ export function useBasoGame(): UseBasoGameReturn {
     getToken,
     refreshState,
     walletChainId,
+    walletAddress,
     fetchDailyStatus,
   ]);
 
@@ -431,30 +467,67 @@ export function useBasoGame(): UseBasoGameReturn {
       showToast("Connect wallet to donate");
       return;
     }
+    const chainId = walletChainId ?? 8453;
     const amountWei = parseUnits(DONATE_AMOUNT_USDC.toFixed(2), TOKEN_DECIMALS);
+    const paymasterUrl = getPaymasterServiceUrl();
+    const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
+      walletClient.request(args as Parameters<typeof walletClient.request>[0]);
+    const useSponsored =
+      paymasterUrl &&
+      walletAddress &&
+      (await walletSupportsPaymaster(request, chainId));
+
     try {
-      showToast("Approve in wallet…");
-      const approveHash = await walletClient.writeContract({
-        address: tokenAddr,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [vaultAddr, amountWei],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: approveHash });
-      showToast("Donating…");
-      const donateHash = await walletClient.writeContract({
-        address: vaultAddr,
-        abi: TAPPER_VAULT_ABI,
-        functionName: "donate",
-        args: [amountWei],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: donateHash });
-      showToast("Donation sent");
+      if (useSponsored && paymasterUrl && walletAddress) {
+        showToast("Confirm donate (gasless)…");
+        const approveData = encodeFunctionData({
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [vaultAddr, amountWei],
+        });
+        const donateData = encodeFunctionData({
+          abi: TAPPER_VAULT_ABI,
+          functionName: "donate",
+          args: [amountWei],
+        });
+        const { id } = await sendSponsoredCalls(
+          request,
+          walletAddress,
+          chainId,
+          [
+            { to: tokenAddr, data: approveData },
+            { to: vaultAddr, data: donateData },
+          ],
+          paymasterUrl
+        );
+        showToast("Waiting for confirmation…");
+        const txHash = await getCallsStatusTxHash(request, id, chainId);
+        if (!txHash) throw new Error("Sponsored donate failed or timed out");
+        showToast("Donation sent");
+      } else {
+        showToast("Approve in wallet…");
+        const approveHash = await walletClient.writeContract({
+          address: tokenAddr,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [vaultAddr, amountWei],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        showToast("Donating…");
+        const donateHash = await walletClient.writeContract({
+          address: vaultAddr,
+          abi: TAPPER_VAULT_ABI,
+          functionName: "donate",
+          args: [amountWei],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: donateHash });
+        showToast("Donation sent");
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Donation failed";
       showToast(msg.slice(0, 40));
     }
-  }, [showToast, tokenAddr, walletClient, publicClient]);
+  }, [showToast, tokenAddr, walletClient, publicClient, walletChainId, walletAddress]);
 
   const onTap = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
