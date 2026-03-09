@@ -305,9 +305,7 @@ export function useBasoGame(): UseBasoGameReturn {
 
   const today = todayKeyLocal();
   const gmAvailable =
-    dailyClaimStatus !== null
-      ? dailyClaimStatus.can_claim_daily
-      : lastGMDay !== today;
+    dailyClaimStatus !== null ? dailyClaimStatus.can_claim_daily : true;
   const dailyTimeLeft = useMemo(() => {
     void countdownTick; // force re-run every second while in cooldown
     if (dailyClaimStatus) {
@@ -320,8 +318,8 @@ export function useBasoGame(): UseBasoGameReturn {
       }
       return "";
     }
-    return gmAvailable ? msToHHMM(timeToMidnightMs()) : "";
-  }, [dailyClaimStatus, countdownTick, gmAvailable]);
+    return "";
+  }, [dailyClaimStatus, countdownTick]);
 
   const doGM = useCallback(async () => {
     if (!gmAvailable) {
