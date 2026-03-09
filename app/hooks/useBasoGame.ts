@@ -5,7 +5,6 @@ import { useAccount, usePublicClient, useReadContract, useWalletClient } from "w
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
-import { buildLeaderboard } from "../../lib/baso/leaderboard";
 import { msToHHMM, safeParse, timeToMidnightMs, todayKeyLocal, uid } from "../../lib/baso/utils";
 import { pickNextDonutColor } from "../../lib/baso/donut";
 import {
@@ -71,7 +70,22 @@ export interface UseBasoGameReturn {
 
   onTap: (e: React.PointerEvent<HTMLButtonElement>) => void;
 
-  leaderboard: ReturnType<typeof buildLeaderboard>;
+  leaderboard: {
+    top100: {
+      rank: number;
+      fid: string;
+      score: number;
+      displayName: string | null;
+      username: string | null;
+      walletAddress: string | null;
+      isYou?: boolean;
+    }[];
+    myRank: number | null;
+    totalPlayers: number;
+  } | null;
+  leaderboardLoading: boolean;
+  leaderboardError: string | null;
+  refreshLeaderboard: () => Promise<void>;
 
   // from useTapGame
   tapState: ReturnType<typeof useTapGame>["state"];
@@ -457,10 +471,62 @@ export function useBasoGame(): UseBasoGameReturn {
     [donut]
   );
 
-  const leaderboard = useMemo(
-    () => buildLeaderboard(score),
-    [score]
-  );
+  const [leaderboard, setLeaderboard] = useState<{
+    top100: {
+      rank: number;
+      fid: string;
+      score: number;
+      displayName: string | null;
+      username: string | null;
+      walletAddress: string | null;
+      isYou?: boolean;
+    }[];
+    myRank: number | null;
+    totalPlayers: number;
+  } | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+
+  const refreshLeaderboard = useCallback(async () => {
+    setLeaderboardError(null);
+    setLeaderboardLoading(true);
+    try {
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      const token = await getToken();
+      const res = await fetch(`${base}/api/v1/leaderboard`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...getDevAuthHeaders(),
+        },
+      });
+      if (!res.ok) {
+        throw new Error(res.status === 401 ? "Unauthorized" : "Failed to load leaderboard");
+      }
+      const data = (await res.json()) as {
+        top100: {
+          rank: number;
+          fid: string;
+          score: number;
+          displayName: string | null;
+          username: string | null;
+          walletAddress: string | null;
+          isYou?: boolean;
+        }[];
+        myRank: number | null;
+        totalPlayers: number;
+      };
+      setLeaderboard(data);
+    } catch (e) {
+      setLeaderboardError(e instanceof Error ? e.message : "Failed to load");
+      setLeaderboard(null);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    refreshLeaderboard();
+  }, [refreshLeaderboard]);
 
   return {
     tab,
@@ -511,6 +577,9 @@ export function useBasoGame(): UseBasoGameReturn {
     onTap,
 
     leaderboard,
+    leaderboardLoading,
+    leaderboardError,
+    refreshLeaderboard,
 
     tapState: state,
     debug,

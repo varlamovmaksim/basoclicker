@@ -174,6 +174,9 @@ export function HomeView(): React.ReactElement {
             {game.tab === "rating" && (
               <LeaderboardView
                 leaderboard={game.leaderboard}
+                leaderboardLoading={game.leaderboardLoading}
+                leaderboardError={game.leaderboardError}
+                refreshLeaderboard={game.refreshLeaderboard}
                 score={game.score}
               />
             )}

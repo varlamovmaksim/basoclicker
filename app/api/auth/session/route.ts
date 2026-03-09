@@ -15,15 +15,27 @@ export async function POST(
   }
 
   let deviceFingerprint: string | undefined;
+  let username: string | null | undefined;
+  let displayName: string | null | undefined;
   try {
     const body = await request.json().catch(() => null);
-    if (body != null && typeof body === "object" && typeof (body as Record<string, unknown>).device_fingerprint === "string") {
-      deviceFingerprint = (body as { device_fingerprint: string }).device_fingerprint;
+    if (body != null && typeof body === "object") {
+      const b = body as Record<string, unknown>;
+      if (typeof b.device_fingerprint === "string")
+        deviceFingerprint = b.device_fingerprint;
+      if (b.username !== undefined)
+        username = typeof b.username === "string" ? b.username : null;
+      if (b.display_name !== undefined)
+        displayName =
+          typeof b.display_name === "string" ? b.display_name : null;
     }
   } catch {
     // optional body
   }
 
-  const result = await startSession(auth, deviceFingerprint);
+  const result = await startSession(
+    { fid: auth.fid, username, displayName },
+    deviceFingerprint
+  );
   return NextResponse.json(result);
 }

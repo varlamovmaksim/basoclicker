@@ -1,22 +1,80 @@
 "use client";
 
-import type { LeaderRow } from "../../lib/baso/leaderboard";
 import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
 
+export interface LeaderboardRowData {
+  rank: number;
+  fid: string;
+  score: number;
+  displayName: string | null;
+  username: string | null;
+  walletAddress: string | null;
+  isYou?: boolean;
+}
+
+/** Display order: display_name, username, wallet_address, fid */
+function leaderboardDisplayName(row: LeaderboardRowData): string {
+  return (
+    row.displayName ??
+    row.username ??
+    row.walletAddress ??
+    row.fid
+  );
+}
+
 export interface LeaderboardViewProps {
   leaderboard: {
-    top100: LeaderRow[];
-    myRank: number;
+    top100: LeaderboardRowData[];
+    myRank: number | null;
     totalPlayers: number;
-  };
+  } | null;
+  leaderboardLoading: boolean;
+  leaderboardError: string | null;
+  refreshLeaderboard: () => Promise<void>;
   score: number;
 }
 
 export function LeaderboardView({
   leaderboard,
+  leaderboardLoading,
+  leaderboardError,
+  refreshLeaderboard,
   score,
 }: LeaderboardViewProps): React.ReactElement {
+  if (leaderboardLoading && !leaderboard) {
+    return (
+      <div className="flex justify-center py-8 text-sm text-slate-500">
+        Loading leaderboard…
+      </div>
+    );
+  }
+
+  if (leaderboardError && !leaderboard) {
+    return (
+      <div className="space-y-3">
+        <Card>
+          <p className="text-sm text-red-600">{leaderboardError}</p>
+          <button
+            type="button"
+            onClick={() => void refreshLeaderboard()}
+            className="mt-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+          >
+            Retry
+          </button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!leaderboard) {
+    return (
+      <div className="py-8 text-center text-sm text-slate-500">
+        No leaderboard data
+      </div>
+    );
+  }
+
   const { top100, myRank, totalPlayers } = leaderboard;
 
   return (
@@ -44,7 +102,7 @@ export function LeaderboardView({
           </div>
           <div className="mt-1 flex items-center justify-between text-sm font-black text-slate-900">
             <div>
-              #{myRank}{" "}
+              #{myRank ?? "—"}{" "}
               <span className="text-xs font-semibold text-slate-500">
                 of {totalPlayers.toLocaleString("en-US")}
               </span>
@@ -57,13 +115,27 @@ export function LeaderboardView({
       </div>
 
       <Card>
-        <div className="text-sm font-black text-slate-900">Top 100</div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-black text-slate-900">Top 100</div>
+          {leaderboardLoading && (
+            <span className="text-xs text-slate-500">Updating…</span>
+          )}
+          {!leaderboardLoading && (
+            <button
+              type="button"
+              onClick={() => void refreshLeaderboard()}
+              className="text-xs font-semibold text-blue-600"
+            >
+              Refresh
+            </button>
+          )}
+        </div>
         <div className="mt-2 flex flex-col gap-2">
           {top100.map((x) => (
             <div
-              key={`${x.rank}:${x.name}`}
+              key={`${x.rank}:${x.fid}`}
               className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${
-                x.name === "you"
+                x.isYou
                   ? "border-blue-300 bg-blue-50"
                   : "border-slate-200 bg-white/80"
               }`}
@@ -73,7 +145,7 @@ export function LeaderboardView({
                   #{x.rank}
                 </div>
                 <div className="text-sm font-black text-slate-900">
-                  {x.name === "you" ? "You" : x.name}
+                  {x.isYou ? "You" : leaderboardDisplayName(x)}
                 </div>
               </div>
               <div className="text-sm font-black text-slate-900">
@@ -86,4 +158,3 @@ export function LeaderboardView({
     </div>
   );
 }
-

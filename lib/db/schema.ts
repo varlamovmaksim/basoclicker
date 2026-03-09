@@ -14,6 +14,8 @@ import {
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   fid: varchar("fid", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 128 }),
+  displayName: varchar("display_name", { length: 128 }),
   balance: bigint("balance", { mode: "number" }).notNull().default(0),
   energy: bigint("energy", { mode: "number" }).notNull().default(1000),
   lastEnergyAt: timestamp("last_energy_at", { withTimezone: true }),

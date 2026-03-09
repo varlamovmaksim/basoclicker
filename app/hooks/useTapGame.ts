@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
+import { useMiniApp } from "@/app/providers/MiniAppProvider";
 
 /** Accumulated taps are sent once per this interval (ms). */
 const COMMIT_INTERVAL_MS = 5000;
@@ -160,6 +161,7 @@ function getInitialStoredState(): StoredTapState | null {
 }
 
 export function useTapGame(): UseTapGameReturn {
+  const { context } = useMiniApp();
   const stored = getInitialStoredState();
   const [serverBalance, setServerBalance] = useState(stored?.serverBalance ?? 0);
   const [localTapDelta, setLocalTapDelta] = useState(stored?.localTapDelta ?? 0);
@@ -234,6 +236,13 @@ export function useTapGame(): UseTapGameReturn {
       return false;
     }
     const base = getApiBase();
+    const body: Record<string, unknown> = {};
+    if (!IS_DEV && context?.user) {
+      if (context.user.username != null)
+        body.username = context.user.username;
+      if (context.user.displayName != null)
+        body.display_name = context.user.displayName;
+    }
     const res = await fetch(`${base}/api/auth/session`, {
       method: "POST",
       headers: {
@@ -241,7 +250,7 @@ export function useTapGame(): UseTapGameReturn {
         "Content-Type": "application/json",
         ...getDevAuthHeaders(),
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       setError("Failed to start session");
@@ -290,7 +299,7 @@ export function useTapGame(): UseTapGameReturn {
     setError(null);
     logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
     return true;
-  }, [getToken]);
+  }, [getToken, context]);
 
   const fetchState = useCallback(async (): Promise<void> => {
     const token = await getToken();

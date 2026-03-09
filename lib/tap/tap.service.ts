@@ -24,6 +24,8 @@ import type {
 
 export interface AuthUserForTap {
   fid: string;
+  username?: string | null;
+  displayName?: string | null;
 }
 
 /** User slice for idle mining: pick from UserRow. */
@@ -195,7 +197,10 @@ export async function startSession(
   auth: AuthUserForTap,
   deviceFingerprint?: string | null
 ): Promise<StartSessionResult> {
-  const user = await getOrCreateUserByFid(auth.fid);
+  const user = await getOrCreateUserByFid(auth.fid, {
+    username: auth.username,
+    displayName: auth.displayName,
+  });
 
   return await runInTransaction(async (tx) => {
     const result = await startSessionWithIdleMiningInDb(

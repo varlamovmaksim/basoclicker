@@ -12,6 +12,8 @@ export function withClient(client?: DbClient | unknown): DbClient {
 export interface UserRow {
   id: string;
   fid: string;
+  username: string | null;
+  displayName: string | null;
   balance: number;
   energy: number;
   lastEnergyAt: Date | null;
@@ -22,9 +24,16 @@ export interface UserRow {
   createdAt: Date;
 }
 
+export interface UserProfileInput {
+  username?: string | null;
+  displayName?: string | null;
+}
+
 function mapUserRow(row: {
   id: string;
   fid: string;
+  username: string | null;
+  displayName: string | null;
   balance: unknown;
   energy: unknown;
   lastEnergyAt: Date | null;
@@ -37,6 +46,8 @@ function mapUserRow(row: {
   return {
     id: row.id,
     fid: row.fid,
+    username: row.username ?? null,
+    displayName: row.displayName ?? null,
     balance: row.balance as number,
     energy: row.energy as number,
     lastEnergyAt: row.lastEnergyAt,
@@ -63,14 +74,28 @@ export async function getUserByFid(
   return mapUserRow(row);
 }
 
-export async function getOrCreateUserByFid(fid: string): Promise<UserRow> {
+export async function getOrCreateUserByFid(
+  fid: string,
+  profile?: UserProfileInput | null
+): Promise<UserRow> {
   const existing = await getUserByFid(fid);
-  if (existing) return existing;
+  if (existing) {
+    if (
+      profile &&
+      (profile.username !== undefined || profile.displayName !== undefined)
+    ) {
+      await updateUserProfile(existing.id, profile);
+      return (await getUserByFid(fid)) ?? existing;
+    }
+    return existing;
+  }
   const now = new Date();
   const inserted = await db
     .insert(usersTable)
     .values({
       fid,
+      username: profile?.username ?? null,
+      displayName: profile?.displayName ?? null,
       energy: tapConfig.ENERGY_MAX,
       lastEnergyAt: now,
     })
@@ -78,6 +103,22 @@ export async function getOrCreateUserByFid(fid: string): Promise<UserRow> {
   const row = inserted[0];
   if (!row) throw new Error("Failed to create user");
   return mapUserRow(row);
+}
+
+/** Update username and/or display_name from miniapp context. */
+export async function updateUserProfile(
+  userId: string,
+  profile: UserProfileInput,
+  client?: DbClient | unknown
+): Promise<void> {
+  const c = withClient(client);
+  const updates: { username?: string | null; displayName?: string | null } =
+    {};
+  if (profile.username !== undefined) updates.username = profile.username ?? null;
+  if (profile.displayName !== undefined)
+    updates.displayName = profile.displayName ?? null;
+  if (Object.keys(updates).length === 0) return;
+  await c.update(usersTable).set(updates).where(eq(usersTable.id, userId));
 }
 
 /** Lock and fetch user row in one round-trip (SELECT ... FOR UPDATE). */
