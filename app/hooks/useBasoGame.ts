@@ -320,7 +320,7 @@ export function useBasoGame(): UseBasoGameReturn {
       return;
     }
     const chainId = walletChainId ?? 8453;
-    const paymasterUrl = getPaymasterServiceUrl();
+    const paymasterUrl = getPaymasterServiceUrl(chainId);
     const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
       walletClient.request(args as Parameters<typeof walletClient.request>[0]);
     const useSponsored =
@@ -469,7 +469,7 @@ export function useBasoGame(): UseBasoGameReturn {
     }
     const chainId = walletChainId ?? 8453;
     const amountWei = parseUnits(DONATE_AMOUNT_USDC.toFixed(2), TOKEN_DECIMALS);
-    const paymasterUrl = getPaymasterServiceUrl();
+    const paymasterUrl = getPaymasterServiceUrl(chainId);
     const request: (args: { method: string; params?: unknown[] }) => Promise<unknown> = (args) =>
       walletClient.request(args as Parameters<typeof walletClient.request>[0]);
     const useSponsored =
