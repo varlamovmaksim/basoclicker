@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAccount, usePublicClient, useReadContract, useWalletClient } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
@@ -136,7 +136,7 @@ export function useBasoGame(): UseBasoGameReturn {
     revertOptimisticPurchaseDeduction,
   } = useTapGame();
 
-  const { address: walletAddress, chainId: walletChainId } = useAccount();
+  const { address: _walletAddress, chainId: walletChainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
   const tokenAddr = getTokenAddress();
