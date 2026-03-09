@@ -34,6 +34,7 @@ export async function generateMetadata(): Promise<Metadata> {
           },
         },
       }),
+      "base:app_id": '69aea5ca2976dc607e3a66c7',
     },
   };
 }
