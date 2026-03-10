@@ -5,6 +5,7 @@ import sdk from "@farcaster/miniapp-sdk";
 import { useAccount } from "wagmi";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { useMiniApp } from "@/app/providers/MiniAppProvider";
+import { farcasterConfig } from "@/farcaster.config";
 
 /** Accumulated taps are sent once per this interval (ms). */
 const COMMIT_INTERVAL_MS = 5000;
@@ -206,6 +207,8 @@ export function useTapGame(): UseTapGameReturn {
   const seqRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  /** Dedupe: one in-flight getToken so multiple callers (session, commit, useBasoGame) share one verify-siwf request. */
+  const getTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const commitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitInFlightRef = useRef(false);
   /** After applying a commit, stateRef is still stale; use this when scheduling from finally. */
@@ -245,30 +248,52 @@ export function useTapGame(): UseTapGameReturn {
     if (typeof window !== "undefined" && window.location.hostname === "localhost") {
       return "dev";
     }
+    if (getTokenPromiseRef.current) {
+      if (typeof window !== "undefined") console.log("[auth] getToken() reusing in-flight request");
+      return getTokenPromiseRef.current;
+    }
     const TIMEOUT_MS = 10_000;
-    if (typeof window !== "undefined") {
-      console.log("[auth] getToken() called");
-    }
+    if (typeof window !== "undefined") console.log("[auth] getToken() called (new request)");
     const start = typeof performance !== "undefined" ? performance.now() : 0;
-    try {
-      const { token } = await Promise.race([
-        sdk.quickAuth.getToken(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("quickauth_timeout")), TIMEOUT_MS)
-        ),
-      ]);
-      const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
-      if (typeof window !== "undefined") {
-        console.log("[auth] getToken() =>", token ? "token received" : "no token", `(${elapsed}ms)`);
+    const run = async (): Promise<string | null> => {
+      try {
+        const { token } = await Promise.race([
+          sdk.quickAuth.getToken(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("quickauth_timeout")), TIMEOUT_MS)
+          ),
+        ]);
+        const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
+        if (typeof window !== "undefined") {
+          console.log("[auth] getToken() =>", token ? "token received" : "no token", `(${elapsed}ms)`);
+        }
+        return token ?? null;
+      } catch (e) {
+        const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
+        const msg = e instanceof Error ? e.message : String(e);
+        if (typeof window !== "undefined") {
+          console.warn("[auth] getToken() failed", msg, `(${elapsed}ms)`);
+          if (msg.includes("400") || msg.includes("status 400")) {
+            const origin = typeof window !== "undefined" ? window.location.origin : "";
+            const nextPublicUrl = process.env.NEXT_PUBLIC_URL ?? "(not set)";
+            const manifestHomeUrl = farcasterConfig.miniapp.homeUrl;
+            console.warn(
+              "[auth] verify-siwf returned 400 — check domain match:",
+              { origin, nextPublicUrl, manifestHomeUrl, match: origin === manifestHomeUrl }
+            );
+            console.warn(
+              "[auth] Ensure manifest homeUrl and Farcaster app domain (https://warpcast.com/~/developers) match the URL the miniapp is opened from."
+            );
+          }
+        }
+        return null;
+      } finally {
+        getTokenPromiseRef.current = null;
       }
-      return token ?? null;
-    } catch (e) {
-      const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
-      if (typeof window !== "undefined") {
-        console.warn("[auth] getToken() failed", e instanceof Error ? e.message : e, `(${elapsed}ms)`);
-      }
-      return null;
-    }
+    };
+    const promise = run();
+    getTokenPromiseRef.current = promise;
+    return promise;
   }, []);
 
   const fetchSession = useCallback(async (): Promise<boolean> => {

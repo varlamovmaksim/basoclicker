@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { farcasterConfig } from "@/farcaster.config";
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 
@@ -97,6 +98,8 @@ export function MiniAppProvider({
       readyTimeoutMs: READY_TIMEOUT_MS,
       origin: typeof window !== "undefined" ? window.location.origin : "",
       nextPublicUrl: process.env.NEXT_PUBLIC_URL ?? "(not set)",
+      manifestHomeUrl: farcasterConfig.miniapp.homeUrl,
+      domainCheck: "for verify-siwf, origin should match manifestHomeUrl and Farcaster app domain in dev portal",
     });
 
     const init = async (): Promise<void> => {
