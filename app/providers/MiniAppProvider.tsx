@@ -87,6 +87,14 @@ export function MiniAppProvider({
           setIsReady(true);
           return;
         }
+        // In prod, host (Base) often sends context only after ready(). Call ready() first, then wait for context.
+        await Promise.race([
+          sdk.actions.ready(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("ready_timeout")), 5000)
+          ),
+        ]);
+        if (cancelled) return;
         const ctx = await Promise.race([
           sdk.context,
           new Promise<never>((_, reject) =>
@@ -95,13 +103,7 @@ export function MiniAppProvider({
         ]);
         if (cancelled) return;
         setContext(ctx);
-        await Promise.race([
-          sdk.actions.ready(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("ready_timeout")), 5000)
-          ),
-        ]);
-        if (!cancelled) setIsReady(true);
+        setIsReady(true);
       } catch {
         if (cancelled) return;
         // Timeout or error: allow app to render so user sees content or error state

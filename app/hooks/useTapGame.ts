@@ -75,8 +75,17 @@ function logTap(msg: string, ...args: unknown[]): void {
   }
 }
 
+/** API base URL. In prod, prefer NEXT_PUBLIC_URL so requests hit the app origin even if iframe origin differs. */
 function getApiBase(): string {
   if (typeof window === "undefined") return "";
+  const envUrl = process.env.NEXT_PUBLIC_URL;
+  if (envUrl) {
+    try {
+      return new URL(envUrl).origin;
+    } catch {
+      // ignore invalid URL
+    }
+  }
   return window.location.origin;
 }
 
@@ -219,6 +228,7 @@ export function useTapGame(): UseTapGameReturn {
     energyServerTime,
   };
 
+  /** In prod, token comes from host via sdk.quickAuth.getToken() (triggers sign-in). No token => no session/commit/state requests. */
   const getToken = useCallback(async (): Promise<string | null> => {
     if (IS_DEV) return "dev";
     const TIMEOUT_MS = 10_000;
