@@ -4,6 +4,8 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -49,6 +51,8 @@ interface MiniAppContextValue {
   context: Awaited<typeof sdk.context> | null;
   isReady: boolean;
   isDev: boolean;
+  /** Resolves when miniapp init has finished (context ready or fallback). Call before getToken() in prod so SIWF runs after ready(). */
+  whenReady: () => Promise<void>;
 }
 
 export const MiniAppContext = createContext<MiniAppContextValue | null>(null);
@@ -70,6 +74,13 @@ export function MiniAppProvider({
     IS_DEV ? getDevContext() : null
   );
   const [isReady, setIsReady] = useState(IS_DEV);
+  const resolveReadyRef = useRef<(() => void) | null>(null);
+  const readyPromise = useMemo(
+    () =>
+      IS_DEV ? Promise.resolve() : new Promise<void>((r) => { resolveReadyRef.current = r; }),
+    []
+  );
+  const whenReady = useMemo(() => () => readyPromise, [readyPromise]);
 
   useEffect(() => {
     const initId = Math.random().toString(36).slice(2, 8);
@@ -118,6 +129,8 @@ export function MiniAppProvider({
           log("not in miniapp → fallback context");
           setContext(getDevContext());
           setIsReady(true);
+          resolveReadyRef.current?.();
+          resolveReadyRef.current = null;
           return;
         }
 
@@ -152,14 +165,26 @@ export function MiniAppProvider({
           return;
         }
         const totalMs = typeof performance !== "undefined" ? Math.round(performance.now() - t0) : 0;
+        const user = ctx?.user;
+        const userInfo =
+          user != null
+            ? {
+                fid: user.fid ?? null,
+                address: (user as { address?: string; custodyAddress?: string }).address ?? (user as { address?: string; custodyAddress?: string }).custodyAddress ?? null,
+                username: user.username ?? null,
+                display_name: user.displayName ?? null,
+              }
+            : null;
         log("step: context done", {
           elapsedMs: elapsed3,
           totalMs,
-          fid: ctx?.user?.fid ?? null,
-          hasUser: !!ctx?.user,
+          hasUser: !!user,
+          user: userInfo,
         });
         setContext(ctx);
         setIsReady(true);
+        resolveReadyRef.current?.();
+        resolveReadyRef.current = null;
         log("init complete");
       } catch (e) {
         if (cancelled) {
@@ -176,6 +201,8 @@ export function MiniAppProvider({
         console.warn("[auth] MiniAppProvider: using fallback context after init failure");
         setContext(getDevContext());
         setIsReady(true);
+        resolveReadyRef.current?.();
+        resolveReadyRef.current = null;
       }
     };
     init();
@@ -187,7 +214,7 @@ export function MiniAppProvider({
 
   return (
     <MiniAppContext.Provider
-      value={{ context, isReady, isDev: IS_DEV }}
+      value={{ context, isReady, isDev: IS_DEV, whenReady }}
     >
       {children}
     </MiniAppContext.Provider>

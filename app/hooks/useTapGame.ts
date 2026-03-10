@@ -182,7 +182,7 @@ function getInitialStoredState(): StoredTapState | null {
 }
 
 export function useTapGame(): UseTapGameReturn {
-  const { context, isReady } = useMiniApp();
+  const { context, isReady, whenReady } = useMiniApp();
   const { address: walletAddress } = useAccount();
   const stored = getInitialStoredState();
   const [serverBalance, setServerBalance] = useState(stored?.serverBalance ?? 0);
@@ -257,6 +257,9 @@ export function useTapGame(): UseTapGameReturn {
     const start = typeof performance !== "undefined" ? performance.now() : 0;
     const run = async (): Promise<string | null> => {
       try {
+        if (typeof window !== "undefined") console.log("[auth] getToken() waiting for miniapp init…");
+        await whenReady();
+        if (typeof window !== "undefined") console.log("[auth] getToken() miniapp ready, calling sdk.quickAuth.getToken()");
         const { token } = await Promise.race([
           sdk.quickAuth.getToken(),
           new Promise<never>((_, reject) =>
@@ -285,6 +288,11 @@ export function useTapGame(): UseTapGameReturn {
               "[auth] Ensure manifest homeUrl and Farcaster app domain (https://warpcast.com/~/developers) match the URL the miniapp is opened from."
             );
           }
+          if (msg.includes("quickauth_timeout")) {
+            console.warn(
+              "[auth] quickauth_timeout — host did not respond in time. Complete the sign-in prompt in the app if shown, or retry."
+            );
+          }
         }
         return null;
       } finally {
@@ -294,7 +302,7 @@ export function useTapGame(): UseTapGameReturn {
     const promise = run();
     getTokenPromiseRef.current = promise;
     return promise;
-  }, []);
+  }, [whenReady]);
 
   const fetchSession = useCallback(async (): Promise<boolean> => {
     if (typeof window !== "undefined") console.log("[auth] fetchSession: start");
