@@ -223,12 +223,13 @@ export function useBasoGame(): UseBasoGameReturn {
     };
   }, [getToken, walletChainId, fetchDailyStatus]);
 
-  // Load referral profile (code, applied code, stats) from backend.
+  // Load referral profile (code, applied code, stats) from backend when session is ready.
   useEffect(() => {
+    if (!state.sessionId) return;
     let cancelled = false;
     (async () => {
       const token = await getToken();
-      if (!token) return;
+      if (!token || cancelled) return;
       const base = typeof window !== "undefined" ? window.location.origin : "";
       try {
         const res = await fetch(`${base}/api/v1/referrals/profile`, {
@@ -237,7 +238,7 @@ export function useBasoGame(): UseBasoGameReturn {
             ...getDevAuthHeaders(),
           },
         });
-        if (!res.ok) return;
+        if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           referralCode?: string;
           appliedReferralCode?: string | null;
@@ -260,7 +261,7 @@ export function useBasoGame(): UseBasoGameReturn {
     return () => {
       cancelled = true;
     };
-  }, [getToken]);
+  }, [getToken, state.sessionId]);
 
   useEffect(() => {
     if (dailyClaimStatus.can_claim_daily || !dailyClaimStatus.last_claim_at) {
@@ -528,10 +529,19 @@ export function useBasoGame(): UseBasoGameReturn {
     connector,
   ]);
 
-  const referralLink = useMemo(
-    () => `https://base.app/miniapp/baso?ref=${referralCode}`,
-    [referralCode]
-  );
+  const referralLink = useMemo(() => {
+    const raw =
+      typeof window !== "undefined"
+        ? (process.env.NEXT_PUBLIC_URL || window.location.origin)
+        : process.env.NEXT_PUBLIC_URL || "";
+    const base = raw && !/^https?:\/\//i.test(raw) ? `https://${raw}` : raw;
+    try {
+      const origin = base ? new URL(base).origin : "";
+      return origin ? `${origin}?ref=${encodeURIComponent(referralCode)}` : "";
+    } catch {
+      return "";
+    }
+  }, [referralCode]);
 
   const [refCodeInput, setRefCodeInput] = useState("");
 
