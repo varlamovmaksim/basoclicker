@@ -2,6 +2,7 @@ import {
   getBoosterListForUser,
   getEffectiveBoosterStats,
 } from "@/lib/boosters/boosters.service";
+import { ensureUserHasReferralCode } from "@/lib/referrals/referrals.repository";
 import {
   commitUserAndIncrementSession,
   startSessionWithIdleMiningInDb,
@@ -204,6 +205,8 @@ export async function startSession(
     username: auth.username,
     displayName: auth.displayName,
   });
+
+  await ensureUserHasReferralCode(user.id);
 
   if (walletAddress != null) {
     await setWalletIfMissing(user.id, walletAddress);
