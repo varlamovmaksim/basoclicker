@@ -102,6 +102,7 @@ export interface UseBasoGameReturn {
   tapState: ReturnType<typeof useTapGame>["state"];
   debug: ReturnType<typeof useTapGame>["debug"];
   refreshState: () => Promise<void>;
+  getToken: () => Promise<string | null>;
   applyOptimisticPurchaseDeduction: (amount: number) => void;
   revertOptimisticPurchaseDeduction: (amount: number) => void;
   donutColor: string;
@@ -858,6 +859,7 @@ export function useBasoGame(): UseBasoGameReturn {
     tapState: state,
     debug,
     refreshState,
+    getToken,
     applyOptimisticPurchaseDeduction,
     revertOptimisticPurchaseDeduction,
 

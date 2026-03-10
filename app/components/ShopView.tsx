@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import sdk from "@farcaster/miniapp-sdk";
 import type { BoosterListItem, TapGameState } from "../hooks/useTapGame";
 import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
@@ -12,6 +11,7 @@ export interface ShopViewProps {
   state: TapGameState;
   score: number;
   refreshState: () => Promise<void>;
+  getToken: () => Promise<string | null>;
   applyOptimisticPurchaseDeduction: (amount: number) => void;
   revertOptimisticPurchaseDeduction: (amount: number) => void;
   skinStageClass: string;
@@ -118,6 +118,7 @@ export function ShopView({
   state,
   score,
   refreshState,
+  getToken,
   applyOptimisticPurchaseDeduction,
   revertOptimisticPurchaseDeduction,
   skinStageClass,
@@ -129,7 +130,7 @@ export function ShopView({
 
   const handlePurchase = useCallback(
     async (boosterId: string) => {
-      const token = IS_DEV ? "dev" : (await sdk.quickAuth.getToken()).token ?? null;
+      const token = await getToken();
       if (!token) {
         setMessage("Not signed in");
         return;
@@ -182,6 +183,7 @@ export function ShopView({
       }
     },
     [
+      getToken,
       state.boosters,
       refreshState,
       applyOptimisticPurchaseDeduction,
