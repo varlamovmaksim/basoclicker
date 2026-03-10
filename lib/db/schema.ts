@@ -23,6 +23,8 @@ export const users = pgTable("users", {
   lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
   avgTps: bigint("avg_tps", { mode: "number" }),
   walletAddress: varchar("wallet_address", { length: 42 }),
+  referralCode: varchar("referral_code", { length: 16 }),
+  usedReferralCode: varchar("used_referral_code", { length: 16 }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

@@ -267,6 +267,19 @@ export function useTapGame(): UseTapGameReturn {
     }
     if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))
       body.wallet_address = walletAddress;
+
+    // Optional referral code from URL (?ref=...), applied on first auth.
+    if (typeof window !== "undefined") {
+      try {
+        const url = new URL(window.location.href);
+        const ref = url.searchParams.get("ref");
+        if (ref) {
+          body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+        }
+      } catch {
+        // ignore malformed URL
+      }
+    }
     const res = await fetch(`${base}/api/auth/session`, {
       method: "POST",
       headers: {

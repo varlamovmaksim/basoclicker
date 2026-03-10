@@ -223,6 +223,45 @@ export function useBasoGame(): UseBasoGameReturn {
     };
   }, [getToken, walletChainId, fetchDailyStatus]);
 
+  // Load referral profile (code, applied code, stats) from backend.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (!token) return;
+      const base = typeof window !== "undefined" ? window.location.origin : "";
+      try {
+        const res = await fetch(`${base}/api/v1/referrals/profile`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...getDevAuthHeaders(),
+          },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          referralCode?: string;
+          appliedReferralCode?: string | null;
+          referralsCount?: number;
+        };
+        if (cancelled) return;
+        if (typeof data.referralCode === "string" && data.referralCode.length >= 4) {
+          _setReferralCode(data.referralCode);
+        }
+        if (typeof data.appliedReferralCode === "string" || data.appliedReferralCode === null) {
+          setAppliedReferralCode(data.appliedReferralCode ?? null);
+        }
+        if (typeof data.referralsCount === "number") {
+          setReferrals(data.referralsCount);
+        }
+      } catch {
+        // ignore referral profile errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
   useEffect(() => {
     if (dailyClaimStatus.can_claim_daily || !dailyClaimStatus.last_claim_at) {
       return;
@@ -496,7 +535,7 @@ export function useBasoGame(): UseBasoGameReturn {
 
   const [refCodeInput, setRefCodeInput] = useState("");
 
-  const applyReferralCode = useCallback(() => {
+  const applyReferralCode = useCallback(async () => {
     if (appliedReferralCode) {
       showToast("Code already applied");
       return;
@@ -509,10 +548,62 @@ export function useBasoGame(): UseBasoGameReturn {
       showToast("Can't use your own code");
       return;
     }
-    setAppliedReferralCode(refCodeInput);
-    setReferrals((v) => v + 1_000);
-    showToast("Referral code applied (mock)");
-  }, [appliedReferralCode, refCodeInput, referralCode, showToast]);
+
+    const token = await getToken();
+    if (!token) {
+      showToast("Session expired");
+      return;
+    }
+
+    const base = typeof window !== "undefined" ? window.location.origin : "";
+    try {
+      const res = await fetch(`${base}/api/v1/referrals/apply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...getDevAuthHeaders(),
+        },
+        body: JSON.stringify({ code: refCodeInput }),
+      });
+
+      const data = (await res.json().catch(() => null)) as
+        | {
+            ok?: boolean;
+            reason?: string;
+            referralCode?: string;
+            appliedReferralCode?: string | null;
+            referralsCount?: number;
+          }
+        | null;
+
+      if (!res.ok || !data || data.ok === false) {
+        const reason = data?.reason;
+        const msg =
+          reason === "code_already_used"
+            ? "Code already used"
+            : reason === "self_referral"
+              ? "Can't use your own code"
+              : reason === "inviter_not_found" || reason === "code_invalid"
+                ? "Invalid code"
+                : "Failed to apply code";
+        showToast(msg);
+        return;
+      }
+
+      if (data.appliedReferralCode) {
+        setAppliedReferralCode(data.appliedReferralCode);
+      } else {
+        setAppliedReferralCode(refCodeInput);
+      }
+      if (typeof data.referralsCount === "number") {
+        setReferrals(data.referralsCount);
+      }
+      showToast("Referral code applied");
+    } catch {
+      showToast("Failed to apply code");
+    }
+  }, [appliedReferralCode, refCodeInput, referralCode, getToken, showToast]);
 
   const skin = useMemo(
     () => SKINS.find((x) => x.id === skinId) ?? SKINS[0],

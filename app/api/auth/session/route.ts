@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth/auth.controller";
 import { startSession } from "@/lib/tap/tap.service";
+import { applyReferralCodeOnAuth } from "@/lib/referrals/referrals.service";
 
 /**
  * POST /api/auth/session — create a new session for the authenticated user.
@@ -18,6 +19,7 @@ export async function POST(
   let username: string | null | undefined;
   let displayName: string | null | undefined;
   let walletAddress: string | undefined;
+  let referralCodeFromQuery: string | undefined;
   try {
     const body = await request.json().catch(() => null);
     if (body != null && typeof body === "object") {
@@ -33,9 +35,20 @@ export async function POST(
         const addr = b.wallet_address;
         if (/^0x[a-fA-F0-9]{40}$/.test(addr)) walletAddress = addr;
       }
+      if (b.referral_code !== undefined && typeof b.referral_code === "string") {
+        referralCodeFromQuery = b.referral_code;
+      }
     }
   } catch {
     // optional body
+  }
+
+  if (referralCodeFromQuery) {
+    // Fire-and-forget: referral ошибки не должны ломать авторизацию.
+    void applyReferralCodeOnAuth(
+      { fid: auth.fid, username, displayName },
+      referralCodeFromQuery
+    );
   }
 
   const result = await startSession(
