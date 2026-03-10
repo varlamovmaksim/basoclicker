@@ -41,12 +41,13 @@ export async function applyReferralCodeController(
     );
   }
 
-  const code =
-    body &&
-    typeof body === "object" &&
-    typeof (body as Record<string, unknown>).code === "string"
-      ? (body as Record<string, unknown>).code
-      : "";
+  let code = "";
+  if (body && typeof body === "object") {
+    const maybeCode = (body as Record<string, unknown>).code;
+    if (typeof maybeCode === "string") {
+      code = maybeCode;
+    }
+  }
 
   const result = await applyReferralCodeForFid(auth.fid, code);
 
