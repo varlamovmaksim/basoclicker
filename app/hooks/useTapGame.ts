@@ -221,8 +221,14 @@ export function useTapGame(): UseTapGameReturn {
 
   const getToken = useCallback(async (): Promise<string | null> => {
     if (IS_DEV) return "dev";
+    const TIMEOUT_MS = 10_000;
     try {
-      const { token } = await sdk.quickAuth.getToken();
+      const { token } = await Promise.race([
+        sdk.quickAuth.getToken(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("quickauth_timeout")), TIMEOUT_MS)
+        ),
+      ]);
       return token ?? null;
     } catch {
       return null;
@@ -230,112 +236,118 @@ export function useTapGame(): UseTapGameReturn {
   }, []);
 
   const fetchSession = useCallback(async (): Promise<boolean> => {
-    const token = await getToken();
-    tokenRef.current = token ?? null;
-    if (!token) {
-      setError("Not signed in");
-      setIsLoading(false);
-      return false;
-    }
-    const base = getApiBase();
-    const body: Record<string, unknown> = {};
-    const inMiniApp = await sdk.isInMiniApp();
-    if (inMiniApp) {
-      // In Base/miniapp: always use real SDK context for username/displayName (even when IS_DEV)
-      try {
-        const ctx = await sdk.context;
-        if (ctx?.user) {
-          if (ctx.user.username != null && ctx.user.username !== "")
-            body.username = ctx.user.username;
-          if (ctx.user.displayName != null && ctx.user.displayName !== "")
-            body.display_name = ctx.user.displayName;
-        }
-      } catch {
-        if (context?.user) {
-          if (context.user.username != null && context.user.username !== "")
-            body.username = context.user.username;
-          if (context.user.displayName != null && context.user.displayName !== "")
-            body.display_name = context.user.displayName;
-        }
+    try {
+      const token = await getToken();
+      tokenRef.current = token ?? null;
+      if (!token) {
+        setError("Not signed in");
+        setIsLoading(false);
+        return false;
       }
-    } else if (IS_DEV && context?.user) {
-      // Not in miniapp but dev: use fake context from React state
-      if (context.user.username != null && context.user.username !== "")
-        body.username = context.user.username;
-      if (context.user.displayName != null && context.user.displayName !== "")
-        body.display_name = context.user.displayName;
-    }
-    if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))
-      body.wallet_address = walletAddress;
+      const base = getApiBase();
+      const body: Record<string, unknown> = {};
+      const inMiniApp = await sdk.isInMiniApp();
+      if (inMiniApp) {
+        // In Base/miniapp: always use real SDK context for username/displayName (even when IS_DEV)
+        try {
+          const ctx = await sdk.context;
+          if (ctx?.user) {
+            if (ctx.user.username != null && ctx.user.username !== "")
+              body.username = ctx.user.username;
+            if (ctx.user.displayName != null && ctx.user.displayName !== "")
+              body.display_name = ctx.user.displayName;
+          }
+        } catch {
+          if (context?.user) {
+            if (context.user.username != null && context.user.username !== "")
+              body.username = context.user.username;
+            if (context.user.displayName != null && context.user.displayName !== "")
+              body.display_name = context.user.displayName;
+          }
+        }
+      } else if (IS_DEV && context?.user) {
+        // Not in miniapp but dev: use fake context from React state
+        if (context.user.username != null && context.user.username !== "")
+          body.username = context.user.username;
+        if (context.user.displayName != null && context.user.displayName !== "")
+          body.display_name = context.user.displayName;
+      }
+      if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))
+        body.wallet_address = walletAddress;
 
-    // Optional referral code from URL (?ref=...), applied on first auth.
-    if (typeof window !== "undefined") {
-      try {
-        const url = new URL(window.location.href);
-        const ref = url.searchParams.get("ref");
-        if (ref) {
-          body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+      // Optional referral code from URL (?ref=...), applied on first auth.
+      if (typeof window !== "undefined") {
+        try {
+          const url = new URL(window.location.href);
+          const ref = url.searchParams.get("ref");
+          if (ref) {
+            body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
+          }
+        } catch {
+          // ignore malformed URL
         }
-      } catch {
-        // ignore malformed URL
       }
-    }
-    const res = await fetch(`${base}/api/auth/session`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        ...getDevAuthHeaders(),
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
+      const res = await fetch(`${base}/api/auth/session`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          ...getDevAuthHeaders(),
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        setError("Failed to start session");
+        setIsLoading(false);
+        return false;
+      }
+      const data = (await res.json()) as {
+        session_id: string;
+        balance: number;
+        last_seq: number;
+        energy?: number;
+        energy_max?: number;
+        energy_regen_per_sec?: number;
+        server_time?: number;
+        points_multiplier?: number;
+        mining_points_per_sec?: number;
+        boosters?: BoosterListItem[];
+      };
+      setSessionId(data.session_id);
+      setServerBalance(data.balance);
+      setLastServerSeq(data.last_seq);
+      if (typeof data.energy === "number") setEnergy(data.energy);
+      if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
+      if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
+      if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
+      if (typeof data.mining_points_per_sec === "number") setMiningPointsPerSec(data.mining_points_per_sec);
+      if (Array.isArray(data.boosters)) setBoosters(data.boosters);
+      setEnergyServerTime(typeof data.server_time === "number" ? data.server_time : Date.now());
+      seqRef.current = data.last_seq;
+      const stored = getStoredState();
+      const restoredFromStorage =
+        !!(stored?.sessionId === data.session_id && stored.localTapDelta > 0);
+      if (restoredFromStorage) {
+        setLocalTapDelta(stored!.localTapDelta);
+        setLastCommitTime(stored!.lastCommitTime);
+        setClientScore(stored!.clientScore);
+        logTap("fetchSession restored uncommitted", {
+          localTapDelta: stored!.localTapDelta,
+          clientScore: stored!.clientScore,
+        });
+      } else {
+        setLocalTapDelta(0);
+        setLastCommitTime(Date.now());
+        setClientScore(data.balance);
+      }
+      setError(null);
+      logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
+      return true;
+    } catch {
       setError("Failed to start session");
       setIsLoading(false);
       return false;
     }
-    const data = (await res.json()) as {
-      session_id: string;
-      balance: number;
-      last_seq: number;
-      energy?: number;
-      energy_max?: number;
-      energy_regen_per_sec?: number;
-      server_time?: number;
-      points_multiplier?: number;
-      mining_points_per_sec?: number;
-      boosters?: BoosterListItem[];
-    };
-    setSessionId(data.session_id);
-    setServerBalance(data.balance);
-    setLastServerSeq(data.last_seq);
-    if (typeof data.energy === "number") setEnergy(data.energy);
-    if (typeof data.energy_max === "number") setEnergyMax(data.energy_max);
-    if (typeof data.energy_regen_per_sec === "number") setEnergyRegenPerSec(data.energy_regen_per_sec);
-    if (typeof data.points_multiplier === "number") setPointsMultiplier(data.points_multiplier);
-    if (typeof data.mining_points_per_sec === "number") setMiningPointsPerSec(data.mining_points_per_sec);
-    if (Array.isArray(data.boosters)) setBoosters(data.boosters);
-    setEnergyServerTime(typeof data.server_time === "number" ? data.server_time : Date.now());
-    seqRef.current = data.last_seq;
-    const stored = getStoredState();
-    const restoredFromStorage =
-      !!(stored?.sessionId === data.session_id && stored.localTapDelta > 0);
-    if (restoredFromStorage) {
-      setLocalTapDelta(stored!.localTapDelta);
-      setLastCommitTime(stored!.lastCommitTime);
-      setClientScore(stored!.clientScore);
-      logTap("fetchSession restored uncommitted", {
-        localTapDelta: stored!.localTapDelta,
-        clientScore: stored!.clientScore,
-      });
-    } else {
-      setLocalTapDelta(0);
-      setLastCommitTime(Date.now());
-      setClientScore(data.balance);
-    }
-    setError(null);
-    logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
-    return true;
   }, [getToken, context, walletAddress]);
 
   const fetchState = useCallback(async (): Promise<void> => {
