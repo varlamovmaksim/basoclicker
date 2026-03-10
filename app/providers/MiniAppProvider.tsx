@@ -73,16 +73,45 @@ export function MiniAppProvider({
   useEffect(() => {
     if (IS_DEV) return;
 
+    let cancelled = false;
+    const TIMEOUT_MS = 10_000;
+
     const init = async (): Promise<void> => {
-      const isInApp = await sdk.isInMiniApp();
-      if (isInApp) {
-        const ctx = await sdk.context;
+      try {
+        const isInApp = await sdk.isInMiniApp();
+        if (cancelled) return;
+        if (!isInApp) {
+          // Opened in browser or not in miniapp: still mark ready with fallback so UI can render (e.g. "Open in Farcaster")
+          setContext(getDevContext());
+          setIsReady(true);
+          return;
+        }
+        const ctx = await Promise.race([
+          sdk.context,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("context_timeout")), TIMEOUT_MS)
+          ),
+        ]);
+        if (cancelled) return;
         setContext(ctx);
-        await sdk.actions.ready();
+        await Promise.race([
+          sdk.actions.ready(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("ready_timeout")), 5000)
+          ),
+        ]);
+        if (!cancelled) setIsReady(true);
+      } catch (e) {
+        if (cancelled) return;
+        // Timeout or error: allow app to render so user sees content or error state
+        setContext(getDevContext());
         setIsReady(true);
       }
     };
     init();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
