@@ -64,6 +64,13 @@
       "when": 1773046513778,
       "tag": "0008_sparkling_valeria_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773046513779,
+      "tag": "0009_daily_claims_chain_id",
+      "breakpoints": true
     }
   ]
 }

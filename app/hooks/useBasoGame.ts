@@ -2,13 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useConfig, usePublicClient, useWalletClient } from "wagmi";
-import { getCallsStatus, sendCalls } from "@wagmi/core";
+import { getCallsStatus, getWalletClient, sendCalls } from "@wagmi/core";
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
 import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
 import { msToHHMM, safeParse, todayKeyLocal, uid } from "../../lib/baso/utils";
 
 const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const BASE_CHAIN_ID = 8453;
+
+/** Injected (browser) wallet does not support wallet_sendCalls; use writeContract only. */
+function isInjectedConnector(c: { id?: string; name?: string } | null | undefined): boolean {
+  if (!c) return false;
+  if (c.id === "injected") return true;
+  if (typeof c.name === "string" && c.name.toLowerCase().includes("injected")) return true;
+  return false;
+}
 
 interface DailyClaimStatusFromApi {
   can_claim_daily: boolean;
@@ -24,6 +33,7 @@ import {
 } from "@/app/lib/contracts";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { encodeFunctionData, parseUnits } from "viem";
+import { base as baseChain } from "wagmi/chains";
 
 export interface Pop {
   id: string;
@@ -143,8 +153,10 @@ export function useBasoGame(): UseBasoGameReturn {
   } = useTapGame();
 
   const { address: walletAddress, chainId: walletChainId, connector } = useAccount();
-  const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
+  // Always use Base for RPC/signer clients: vault and token are on Base; in dev an injected wallet may be on another chain and we'd get no publicClient otherwise.
+  const chainIdForClient = BASE_CHAIN_ID;
+  const { data: walletClient } = useWalletClient({ chainId: chainIdForClient });
+  const publicClient = usePublicClient({ chainId: chainIdForClient });
   const config = useConfig();
   const tokenAddr = getTokenAddress();
   const [tab, setTab] = useState<BasoTabKey>("home");
@@ -310,35 +322,42 @@ export function useBasoGame(): UseBasoGameReturn {
       return;
     }
     const vaultAddr = getVaultAddress();
-    if (!vaultAddr || !walletClient || !publicClient) {
-      if (!vaultAddr) {
-        showToast("Daily not configured (mock)");
-        await new Promise((r) => setTimeout(r, 900));
-        setLastGMDay(today);
-        return;
-      }
+    if (!vaultAddr) {
+      showToast("Daily not configured (mock)");
+      await new Promise((r) => setTimeout(r, 900));
+      setLastGMDay(today);
+      return;
+    }
+    if (!walletAddress) {
       showToast("Connect wallet to claim daily");
       return;
     }
     const chainId = walletChainId ?? 8453;
     const connectorToUse =
       connector && (config.connectors.find((c) => c.id === connector.id) ?? connector);
-    const tryWagmiCalls =
-      walletAddress && connectorToUse;
+    const tryWagmiCalls = Boolean(connectorToUse) && !isInjectedConnector(connectorToUse);
+    const resolvedWalletClient =
+      walletClient ?? (connectorToUse ? await getWalletClient(config, { connector: connectorToUse, chainId }) : null);
+    if (!resolvedWalletClient || !publicClient) {
+      showToast("Connect wallet to claim daily");
+      return;
+    }
+    const wc = resolvedWalletClient;
+    const pc = publicClient;
 
     try {
       let hash: string;
 
       async function doWriteContract(): Promise<string> {
-        if (!walletClient || !publicClient) throw new Error("Wallet not connected");
         showToast("Confirm daily in wallet…");
-        const h = await walletClient.writeContract({
+        const h = await wc.writeContract({
           address: vaultAddr as `0x${string}`,
           abi: TAPPER_VAULT_ABI,
           functionName: "recordDaily",
+          chain: baseChain,
         });
         showToast("Waiting for confirmation…");
-        await publicClient.waitForTransactionReceipt({ hash: h as `0x${string}` });
+        await pc.waitForTransactionReceipt({ hash: h as `0x${string}` });
         return h;
       }
 
@@ -512,11 +531,11 @@ export function useBasoGame(): UseBasoGameReturn {
 
   const donateHalf = useCallback(async () => {
     const vaultAddr = getVaultAddress();
-    if (!vaultAddr || !tokenAddr || !walletClient || !publicClient) {
-      if (!vaultAddr || !tokenAddr) {
-        showToast("Donate not configured (mock)");
-        return;
-      }
+    if (!vaultAddr || !tokenAddr) {
+      showToast("Donate not configured (mock)");
+      return;
+    }
+    if (!walletAddress) {
       showToast("Connect wallet to donate");
       return;
     }
@@ -524,7 +543,15 @@ export function useBasoGame(): UseBasoGameReturn {
     const amountWei = parseUnits(DONATE_AMOUNT_USDC.toFixed(2), TOKEN_DECIMALS);
     const connectorToUse =
       connector && (config.connectors.find((c) => c.id === connector.id) ?? connector);
-    const tryWagmiCalls = walletAddress && connectorToUse;
+    const tryWagmiCalls = Boolean(connectorToUse) && !isInjectedConnector(connectorToUse);
+    const resolvedWalletClient =
+      walletClient ?? (connectorToUse ? await getWalletClient(config, { connector: connectorToUse, chainId }) : null);
+    if (!resolvedWalletClient || !publicClient) {
+      showToast("Connect wallet to donate");
+      return;
+    }
+    const wc = resolvedWalletClient;
+    const pc = publicClient;
 
     try {
       if (tryWagmiCalls && connectorToUse) {
@@ -563,21 +590,23 @@ export function useBasoGame(): UseBasoGameReturn {
         }
       } else {
         showToast("Approve in wallet…");
-        const approveHash = await walletClient.writeContract({
+        const approveHash = await wc.writeContract({
           address: tokenAddr,
           abi: ERC20_ABI,
           functionName: "approve",
           args: [vaultAddr, amountWei],
+          chain: baseChain,
         });
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        await pc.waitForTransactionReceipt({ hash: approveHash });
         showToast("Donating…");
-        const donateHash = await walletClient.writeContract({
+        const donateHash = await wc.writeContract({
           address: vaultAddr,
           abi: TAPPER_VAULT_ABI,
           functionName: "donate",
           args: [amountWei],
+          chain: baseChain,
         });
-        await publicClient.waitForTransactionReceipt({ hash: donateHash });
+        await pc.waitForTransactionReceipt({ hash: donateHash });
         showToast("Donation sent");
       }
     } catch (e) {
