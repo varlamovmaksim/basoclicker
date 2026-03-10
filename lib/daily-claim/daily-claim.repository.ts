@@ -4,7 +4,7 @@ import { dailyClaims } from "@/lib/db/schema";
 import type { DbClient } from "@/lib/user/user.repository";
 import {
   addBalance,
-  getUserByFid,
+  getUserByAddress,
   withClient,
 } from "@/lib/user/user.repository";
 
@@ -17,7 +17,6 @@ function withDbClient(client?: DbClient | unknown): DbClient {
 
 export interface DailyClaimUserRow {
   id: string;
-  fid: string;
   walletAddress: string | null;
   balance: number;
 }
@@ -32,15 +31,14 @@ export async function runInTransaction<T>(
   return db.transaction((tx) => fn(tx));
 }
 
-export async function getUserForDailyClaimByFid(
-  fid: string,
+export async function getUserForDailyClaimByAddress(
+  address: string,
   client?: DbClient | unknown
 ): Promise<DailyClaimUserRow | null> {
-  const user = await getUserByFid(fid, client);
+  const user = await getUserByAddress(address, client);
   if (!user) return null;
   return {
     id: user.id,
-    fid: user.fid,
     walletAddress: user.walletAddress,
     balance: user.balance,
   };

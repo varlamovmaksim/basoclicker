@@ -1,4 +1,4 @@
-import { getUserByFid } from "@/lib/user/user.repository";
+import { getUserByAddress } from "@/lib/user/user.repository";
 import { tapConfig } from "@/lib/tap/config";
 import {
   getBoosters,
@@ -56,7 +56,7 @@ export async function getBoosterListForUser(
 }
 
 export interface AuthUserForBoosters {
-  fid: string;
+  address: string;
 }
 
 /**
@@ -66,7 +66,7 @@ export async function purchaseBooster(
   auth: AuthUserForBoosters,
   boosterId: string
 ): Promise<PurchaseBoosterResult> {
-  const user = await getUserByFid(auth.fid);
+  const user = await getUserByAddress(auth.address);
   if (!user) return { ok: false, reason: "user_not_found" };
 
   const [boosters, counts] = await Promise.all([

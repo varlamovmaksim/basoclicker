@@ -1,12 +1,17 @@
 import { db } from "@/lib/db/client";
 import {
+  getUserWithReferralByAddress,
   ensureUserHasReferralCode,
   findUserByReferralCode,
   getReferralStatsForUser,
-  getUserWithReferralByFid,
   markUserUsedReferralCode,
 } from "./referrals.repository";
-import { getOrCreateUserByFid, addBalance } from "@/lib/user/user.repository";
+import {
+  addBalance,
+  attachFidToUser,
+  getOrCreateUserByAddress,
+} from "@/lib/user/user.repository";
+import type { SessionIdentityInput } from "@/lib/auth/auth.types";
 
 const REFERRAL_BONUS = 1000;
 
@@ -30,8 +35,8 @@ export interface ApplyReferralResult {
   profile?: ReferralProfile;
 }
 
-export async function getReferralProfileForFid(fid: string): Promise<ReferralProfile> {
-  const user = await getUserWithReferralByFid(fid);
+export async function getReferralProfileForAddress(address: string): Promise<ReferralProfile> {
+  const user = await getUserWithReferralByAddress(address);
   if (!user) {
     throw new Error("User not found for referral profile");
   }
@@ -46,8 +51,8 @@ export async function getReferralProfileForFid(fid: string): Promise<ReferralPro
   };
 }
 
-export async function applyReferralCodeForFid(
-  fid: string,
+export async function applyReferralCodeForAddress(
+  address: string,
   rawCode: string
 ): Promise<ApplyReferralResult> {
   const trimmed = (rawCode ?? "").toString().toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -55,7 +60,7 @@ export async function applyReferralCodeForFid(
     return { ok: false, reason: "code_empty" };
   }
 
-  const user = await getUserWithReferralByFid(fid);
+  const user = await getUserWithReferralByAddress(address);
   if (!user) {
     return { ok: false, reason: "code_invalid" };
   }
@@ -102,17 +107,20 @@ export async function applyReferralCodeForFid(
  * Errors are swallowed so they don't break auth; caller can ignore the result.
  */
 export async function applyReferralCodeOnAuth(
-  auth: { fid: string; username?: string | null; displayName?: string | null },
+  auth: SessionIdentityInput,
   rawCode: string
 ): Promise<void> {
   // Ensure user exists (creates if needed) so later referral stats work consistently.
-  await getOrCreateUserByFid(auth.fid, {
+  const user = await getOrCreateUserByAddress(auth.address, {
     username: auth.username,
     displayName: auth.displayName,
   });
+  if (auth.fid) {
+    await attachFidToUser(user.id, auth.fid);
+  }
 
   try {
-    await applyReferralCodeForFid(auth.fid, rawCode);
+    await applyReferralCodeForAddress(auth.address, rawCode);
   } catch {
     // Intentionally ignore errors here; auth flow must not break on referral issues.
   }

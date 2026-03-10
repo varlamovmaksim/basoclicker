@@ -78,6 +78,13 @@
       "when": 1773046513780,
       "tag": "0010_referral_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1773175400000,
+      "tag": "0011_address_auth_and_user_fids",
+      "breakpoints": true
     }
   ]
 }

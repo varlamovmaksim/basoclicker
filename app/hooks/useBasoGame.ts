@@ -84,7 +84,7 @@ export interface UseBasoGameReturn {
   leaderboard: {
     top100: {
       rank: number;
-      fid: string;
+      fid: string | null;
       score: number;
       displayName: string | null;
       username: string | null;
@@ -757,7 +757,7 @@ export function useBasoGame(): UseBasoGameReturn {
   const [leaderboard, setLeaderboard] = useState<{
     top100: {
       rank: number;
-      fid: string;
+      fid: string | null;
       score: number;
       displayName: string | null;
       username: string | null;
@@ -788,7 +788,7 @@ export function useBasoGame(): UseBasoGameReturn {
       const data = (await res.json()) as {
         top100: {
           rank: number;
-          fid: string;
+          fid: string | null;
           score: number;
           displayName: string | null;
           username: string | null;

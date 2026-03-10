@@ -1,14 +1,12 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isAppToken, verifyAppToken, type AppJwtPayload } from "./app-jwt";
+import type { AuthenticatedUser } from "./auth.types";
 
-/** Deterministic fid from device fingerprint (dev only). Same seed → same fid. */
-function deriveDevFid(fingerprint: string): string {
+/** Deterministic address from device fingerprint (dev only). Same seed -> same address. */
+function deriveDevAddress(fingerprint: string): string {
   const hash = createHash("sha256").update(fingerprint).digest();
-  const lo = hash.readUInt32BE(0);
-  const hi = hash.readUInt32BE(4);
-  const n = Number((BigInt(lo) << BigInt(32)) | BigInt(hi)) >>> 0;
-  return String(1 + (n % 2147483646));
+  return `0x${hash.subarray(0, 20).toString("hex")}`;
 }
 
 /**
@@ -45,23 +43,23 @@ export function getUrlHost(request: NextRequest): string {
 }
 
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
-const DEV_AUTH_FID = "0";
+const DEV_AUTH_ADDRESS = "0x0000000000000000000000000000000000000000";
 
-/** Extract auth user (fid) from request. Accepts our app JWT or dev token. Returns null if missing/invalid. */
+/** Extract auth user from request. Accepts our app JWT or dev token. Returns null if missing/invalid. */
 export async function getAuthFromRequest(
   request: NextRequest
-): Promise<{ fid: string } | null> {
+): Promise<AuthenticatedUser | null> {
   const authorization = request.headers.get("Authorization");
   if (!authorization?.startsWith("Bearer ")) return null;
   const token = authorization.slice(7);
   if (IS_DEV && token === "dev") {
     const fp = request.headers.get("X-Device-Fingerprint");
-    return { fid: fp ? deriveDevFid(fp) : DEV_AUTH_FID };
+    return { address: fp ? deriveDevAddress(fp) : DEV_AUTH_ADDRESS };
   }
   if (isAppToken(token)) {
     try {
       const payload = verifyAppToken(token) as AppJwtPayload;
-      return { fid: String(payload.sub) };
+      return { address: String(payload.sub) };
     } catch {
       return null;
     }
@@ -84,10 +82,10 @@ export async function handleGetAuth(
   const token = authorization.slice(7);
   if (IS_DEV && token === "dev") {
     const fp = request.headers.get("X-Device-Fingerprint");
-    const fid = fp ? deriveDevFid(fp) : DEV_AUTH_FID;
+    const address = fp ? deriveDevAddress(fp) : DEV_AUTH_ADDRESS;
     return NextResponse.json({
       success: true,
-      user: { fid, issuedAt: undefined, expiresAt: undefined },
+      user: { address, issuedAt: undefined, expiresAt: undefined },
     });
   }
 
@@ -97,7 +95,7 @@ export async function handleGetAuth(
       return NextResponse.json({
         success: true,
         user: {
-          fid: String(payload.sub),
+          address: String(payload.sub),
           issuedAt: payload.iat,
           expiresAt: payload.exp,
         },

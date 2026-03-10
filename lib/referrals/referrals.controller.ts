@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  applyReferralCodeForFid,
-  getReferralProfileForFid,
+  applyReferralCodeForAddress,
+  getReferralProfileForAddress,
 } from "./referrals.service";
 
 export interface ReferralAuthUser {
-  fid: string;
+  address: string;
 }
 
 export async function getReferralProfileController(
@@ -13,7 +13,7 @@ export async function getReferralProfileController(
   auth: ReferralAuthUser
 ): Promise<NextResponse> {
   try {
-    const profile = await getReferralProfileForFid(auth.fid);
+    const profile = await getReferralProfileForAddress(auth.address);
     return NextResponse.json({
       referralCode: profile.referralCode,
       appliedReferralCode: profile.appliedReferralCode,
@@ -49,7 +49,7 @@ export async function applyReferralCodeController(
     }
   }
 
-  const result = await applyReferralCodeForFid(auth.fid, code);
+  const result = await applyReferralCodeForAddress(auth.address, code);
 
   if (!result.ok) {
     return NextResponse.json(

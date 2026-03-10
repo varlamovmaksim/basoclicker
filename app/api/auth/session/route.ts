@@ -3,26 +3,27 @@ import { getAuthFromRequest } from "@/lib/auth/auth.controller";
 import { issueAppToken } from "@/lib/auth/app-jwt";
 import { startSession } from "@/lib/tap/tap.service";
 import { applyReferralCodeOnAuth } from "@/lib/referrals/referrals.service";
+import { normalizeWalletAddress } from "@/lib/user/identity";
 
 /**
  * POST /api/auth/session — create a session and return our JWT.
- * Auth: either (1) Authorization: Bearer <our JWT or dev>, or (2) body.fid (miniapp context; no Bearer).
+ * Auth: either (1) Authorization: Bearer <our JWT or dev>, or (2) body.wallet_address.
  * Returns session_id, balance, last_seq, and token (our JWT for subsequent requests).
  */
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse> {
-  let fid: string | null = null;
+  let address: string | null = null;
   const authorization = request.headers.get("Authorization");
   if (authorization?.startsWith("Bearer ")) {
     const auth = await getAuthFromRequest(request);
-    if (auth) fid = auth.fid;
+    if (auth) address = auth.address;
   }
 
   let deviceFingerprint: string | undefined;
   let username: string | null | undefined;
   let displayName: string | null | undefined;
-  let walletAddress: string | undefined;
+  let walletAddressFromBody: string | undefined;
   let referralCodeFromQuery: string | undefined;
   let fidFromBody: string | null = null;
   try {
@@ -39,8 +40,8 @@ export async function POST(
         displayName =
           typeof b.display_name === "string" ? b.display_name : null;
       if (b.wallet_address !== undefined && typeof b.wallet_address === "string") {
-        const addr = b.wallet_address;
-        if (/^0x[a-fA-F0-9]{40}$/.test(addr)) walletAddress = addr;
+        const normalized = normalizeWalletAddress(b.wallet_address);
+        if (normalized) walletAddressFromBody = normalized;
       }
       if (b.referral_code !== undefined && typeof b.referral_code === "string") {
         referralCodeFromQuery = b.referral_code;
@@ -50,27 +51,33 @@ export async function POST(
     // optional body
   }
 
-  if (!fid && fidFromBody) fid = fidFromBody;
-  if (!fid) {
-    return NextResponse.json({ message: "Missing auth: send Bearer token or body.fid (miniapp context)" }, { status: 401 });
+  if (address && walletAddressFromBody && address !== walletAddressFromBody) {
+    return NextResponse.json({ message: "Wallet address mismatch" }, { status: 401 });
+  }
+
+  if (!address && walletAddressFromBody) {
+    address = walletAddressFromBody;
+  }
+
+  if (!address) {
+    return NextResponse.json({ message: "Missing auth: send Bearer token or body.wallet_address" }, { status: 401 });
   }
 
   if (referralCodeFromQuery) {
     void applyReferralCodeOnAuth(
-      { fid, username, displayName },
+      { address, fid: fidFromBody, username, displayName },
       referralCodeFromQuery
     );
   }
 
   const result = await startSession(
-    { fid, username, displayName },
-    deviceFingerprint,
-    walletAddress
+    { address, fid: fidFromBody, username, displayName },
+    deviceFingerprint
   );
 
   let token: string;
   try {
-    token = issueAppToken(fid);
+    token = issueAppToken(address);
   } catch {
     return NextResponse.json({ message: "Server auth misconfiguration" }, { status: 500 });
   }

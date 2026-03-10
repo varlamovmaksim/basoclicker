@@ -8,13 +8,14 @@ import {
   startSessionWithIdleMiningInDb,
 } from "@/lib/session/session.repository";
 import {
-  getOrCreateUserByFid,
+  attachFidToUser,
+  getOrCreateUserByAddress,
   getUserByIdForUpdate,
-  getUserByFid,
+  getUserByAddress,
   setUserEnergy,
-  setWalletIfMissing,
   updateUserAfterIdleMining,
 } from "@/lib/user/user.repository";
+import type { SessionIdentityInput } from "@/lib/auth/auth.types";
 import { tapConfig } from "@/lib/tap/config";
 import { getStateContext, getCommitContext, runInTransaction } from "./tap.repository";
 import type {
@@ -25,9 +26,7 @@ import type {
 } from "./types";
 
 export interface AuthUserForTap {
-  fid: string;
-  username?: string | null;
-  displayName?: string | null;
+  address: string;
 }
 
 /** User slice for idle mining: pick from UserRow. */
@@ -85,7 +84,7 @@ export async function commitTaps(
   body: TapCommitRequest,
   auth: AuthUserForTap
 ): Promise<TapCommitResponse> {
-  const ctx = await getCommitContext(auth.fid, body.session_id);
+  const ctx = await getCommitContext(auth.address, body.session_id);
   if (!ctx) {
     return {
       ok: false,
@@ -194,22 +193,21 @@ export interface StartSessionResult {
 /**
  * Create or get user, create a new session, return session_id and initial state.
  * Idle mining and stats are computed in the DB in one round-trip; booster list is fetched separately.
- * When walletAddress is provided (e.g. from Wagmi in Base miniapp), sets user.wallet_address if currently null.
+ * Address is the canonical identity; any observed fid is attached separately.
  */
 export async function startSession(
-  auth: AuthUserForTap,
-  deviceFingerprint?: string | null,
-  walletAddress?: string | null
+  auth: SessionIdentityInput,
+  deviceFingerprint?: string | null
 ): Promise<StartSessionResult> {
-  const user = await getOrCreateUserByFid(auth.fid, {
+  const user = await getOrCreateUserByAddress(auth.address, {
     username: auth.username,
     displayName: auth.displayName,
   });
 
   await ensureUserHasReferralCode(user.id);
 
-  if (walletAddress != null) {
-    await setWalletIfMissing(user.id, walletAddress);
+  if (auth.fid) {
+    await attachFidToUser(user.id, auth.fid);
   }
 
   return await runInTransaction(async (tx) => {
@@ -245,7 +243,7 @@ export async function startSession(
 export async function getFullState(
   auth: AuthUserForTap
 ): Promise<TapStateResponse | null> {
-  const ctx = await getStateContext(auth.fid);
+  const ctx = await getStateContext(auth.address);
   if (!ctx) return null;
   const { user, session, stats, list: boosters } = ctx;
 
@@ -295,7 +293,7 @@ export async function getFullState(
  * Dev-only: set user energy to max. Call only when ALLOW_DEV_ENERGY_RESTORE or NODE_ENV is development.
  */
 export async function restoreEnergy(auth: AuthUserForTap): Promise<{ energy: number } | null> {
-  const user = await getUserByFid(auth.fid);
+  const user = await getUserByAddress(auth.address);
   if (!user) return null;
   const stats = await getEffectiveBoosterStats(user.id);
   await setUserEnergy(user.id, stats.energyMax, new Date());

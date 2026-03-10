@@ -5,7 +5,7 @@ import { formatCompact } from "../../lib/baso/utils";
 
 export interface LeaderboardRowData {
   rank: number;
-  fid: string;
+  fid: string | null;
   score: number;
   displayName: string | null;
   username: string | null;
@@ -19,7 +19,8 @@ function leaderboardDisplayName(row: LeaderboardRowData): string {
     row.displayName ??
     row.username ??
     row.walletAddress ??
-    row.fid
+    row.fid ??
+    "Unknown player"
   );
 }
 
@@ -133,7 +134,7 @@ export function LeaderboardView({
         <div className="mt-2 flex flex-col gap-2">
           {top100.map((x) => (
             <div
-              key={`${x.rank}:${x.fid}`}
+              key={`${x.rank}:${x.walletAddress ?? x.fid ?? "unknown"}`}
               className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${
                 x.isYou
                   ? "border-blue-300 bg-blue-50"

@@ -18,8 +18,6 @@ export interface ShopViewProps {
   setSkin: (id: string) => void;
 }
 
-const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
-
 type BoostCategory = "tap" | "auto" | "energy";
 
 const TYPE_TO_CATEGORY: Record<string, BoostCategory> = {

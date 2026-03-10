@@ -9,8 +9,8 @@ export async function handleGetLeaderboard(
   request: NextRequest
 ): Promise<NextResponse> {
   const auth = await getAuthFromRequest(request);
-  const fid = auth?.fid ?? null;
+  const address = auth?.address ?? null;
 
-  const result = await getLeaderboard(fid);
+  const result = await getLeaderboard(address);
   return NextResponse.json(result);
 }

@@ -259,9 +259,9 @@ export function useTapGame(): UseTapGameReturn {
         address: walletAddress ?? null,
       });
     }
-    if (!isDevOrLocalhost && (context?.user?.fid == null || context?.user?.fid === 0)) {
-      if (typeof window !== "undefined") console.warn("[auth] fetchSession: no fid in context — skipping session");
-      setError("Not signed in");
+    if (!isDevOrLocalhost && (walletAddress == null || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress))) {
+      if (typeof window !== "undefined") console.warn("[auth] fetchSession: no wallet address — skipping session");
+      setError("Wallet not connected");
       setIsLoading(false);
       return false;
     }
@@ -309,7 +309,7 @@ export function useTapGame(): UseTapGameReturn {
         ...getDevAuthHeaders(),
       };
       if (isDevOrLocalhost) headers.Authorization = "Bearer dev";
-      if (typeof window !== "undefined") console.log("[auth] fetchSession: POST /api/auth/session (fid from context)");
+      if (typeof window !== "undefined") console.log("[auth] fetchSession: POST /api/auth/session (wallet auth)");
       const res = await fetch(`${base}/api/auth/session`, {
         method: "POST",
         headers,

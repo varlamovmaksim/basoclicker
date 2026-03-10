@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBoosterListForUser } from "./boosters.service";
 import { setUserBoosterCount } from "./boosters.repository";
-import { getUserByFid } from "@/lib/user/user.repository";
+import { getUserByAddress } from "@/lib/user/user.repository";
 import { purchaseBooster } from "./boosters.service";
 
 export interface BoostersAuthUser {
-  fid: string;
+  address: string;
 }
 
 function parseDevBoosterBody(
@@ -47,7 +47,7 @@ export async function handleSetDevBoosterCount(
     );
   }
 
-  const user = await getUserByFid(auth.fid);
+  const user = await getUserByAddress(auth.address);
   if (!user) {
     return NextResponse.json({ message: "User not found" }, { status: 404 });
   }

@@ -1,12 +1,12 @@
 import {
+  getRankByAddress,
   getTopByBalance,
   getTotalPlayers,
-  getRankByFid,
 } from "./leaderboard.repository";
 
 export interface LeaderboardRow {
   rank: number;
-  fid: string;
+  fid: string | null;
   score: number;
   displayName: string | null;
   username: string | null;
@@ -21,17 +21,19 @@ export interface LeaderboardResult {
 }
 
 /**
- * Returns leaderboard from DB. If fid is provided, includes myRank and isYou on the current user's row.
+ * Returns leaderboard from DB. If address is provided, includes myRank and isYou on the current user's row.
  */
-export async function getLeaderboard(fid: string | null): Promise<LeaderboardResult> {
+export async function getLeaderboard(address: string | null): Promise<LeaderboardResult> {
   const [top100, totalPlayers, myRank] = await Promise.all([
     getTopByBalance(100),
     getTotalPlayers(),
-    fid ? getRankByFid(fid) : Promise.resolve(null),
+    address ? getRankByAddress(address) : Promise.resolve(null),
   ]);
 
-  const top100WithYou = fid
-    ? top100.map((row) => (row.fid === fid ? { ...row, isYou: true } : row))
+  const top100WithYou = address
+    ? top100.map((row) =>
+        row.walletAddress === address ? { ...row, isYou: true } : row
+      )
     : top100;
 
   return {

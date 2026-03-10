@@ -1,10 +1,5 @@
 import { verifyToken } from "./auth.repository";
-
-export interface AuthUser {
-  fid: string;
-  issuedAt?: number;
-  expiresAt?: number;
-}
+import type { AuthenticatedUser } from "./auth.types";
 
 /**
  * Returns the authenticated user for the given token and domain.
@@ -13,10 +8,10 @@ export interface AuthUser {
 export async function getAuthenticatedUser(
   token: string,
   domain: string
-): Promise<AuthUser> {
+): Promise<AuthenticatedUser> {
   const payload = await verifyToken(token, domain);
   return {
-    fid: String(payload.sub),
+    address: String(payload.sub),
     issuedAt: payload.iat,
     expiresAt: payload.exp,
   };

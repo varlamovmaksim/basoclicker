@@ -4,7 +4,7 @@ import {
   getLatestSessionByUserId,
   getSessionById,
 } from "@/lib/session/session.repository";
-import { getUserByFid } from "@/lib/user/user.repository";
+import { getUserByAddress } from "@/lib/user/user.repository";
 import type { DbClient } from "@/lib/user/user.repository";
 import type { BoosterListItem, EffectiveBoosterStats } from "@/lib/boosters/types";
 import type { SessionRow } from "@/lib/session/session.repository";
@@ -28,14 +28,14 @@ export interface StateContext {
 }
 
 /**
- * One logical fetch for commit: user by fid, session by id, stats and booster list.
+ * One logical fetch for commit: user by address, session by id, stats and booster list.
  * Returns null if user or session missing or session does not belong to user.
  */
 export async function getCommitContext(
-  fid: string,
+  address: string,
   sessionId: string
 ): Promise<CommitContext | null> {
-  const user = await getUserByFid(fid);
+  const user = await getUserByAddress(address);
   if (!user) return null;
   const [session, statsList] = await Promise.all([
     getSessionById(sessionId),
@@ -51,11 +51,11 @@ export async function getCommitContext(
 }
 
 /**
- * One logical fetch for getFullState: user by fid, latest session, stats and booster list.
+ * One logical fetch for getFullState: user by address, latest session, stats and booster list.
  * Returns null if user missing.
  */
-export async function getStateContext(fid: string): Promise<StateContext | null> {
-  const user = await getUserByFid(fid);
+export async function getStateContext(address: string): Promise<StateContext | null> {
+  const user = await getUserByAddress(address);
   if (!user) return null;
   const [session, statsList] = await Promise.all([
     getLatestSessionByUserId(user.id),

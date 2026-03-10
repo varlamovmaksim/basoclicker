@@ -4,7 +4,7 @@ import { commitTaps, getFullState } from "./tap.service";
 import type { TapCommitRequest } from "./types";
 
 export interface TapAuthUser {
-  fid: string;
+  address: string;
 }
 
 function parseTapCommitBody(body: unknown): TapCommitRequest | null {
@@ -45,7 +45,7 @@ function parseTapCommitBody(body: unknown): TapCommitRequest | null {
 }
 
 /**
- * POST /api/v1/tap/commit — commit batched taps. Requires auth (fid).
+ * POST /api/v1/tap/commit — commit batched taps. Requires auth.
  */
 export async function handleTapCommit(
   request: NextRequest,

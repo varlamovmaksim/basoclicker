@@ -16,20 +16,20 @@ function getSecret(): string {
 }
 
 export interface AppJwtPayload {
-  sub: string; // fid
+  sub: string; // normalized wallet address
   iat: number;
   exp: number;
 }
 
 /**
- * Issue our own JWT for the given fid. Used after session creation (miniapp context or legacy Bearer).
+ * Issue our own JWT for the authenticated address. Used after session creation.
  */
-export function issueAppToken(fid: string): string {
+export function issueAppToken(address: string): string {
   const secret = getSecret();
   const iat = Math.floor(Date.now() / 1000);
   const exp = iat + TTL_SEC;
   const header = { alg: ALG, typ: "JWT" };
-  const payload: AppJwtPayload = { sub: String(fid), iat, exp };
+  const payload: AppJwtPayload = { sub: String(address), iat, exp };
   const headerB64 = base64UrlEncode(Buffer.from(JSON.stringify(header)));
   const payloadB64 = base64UrlEncode(Buffer.from(JSON.stringify(payload)));
   const signatureInput = `${headerB64}.${payloadB64}`;

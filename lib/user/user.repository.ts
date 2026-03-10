@@ -1,7 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { users as usersTable } from "@/lib/db/schema";
+import { userFids as userFidsTable, users as usersTable } from "@/lib/db/schema";
 import { tapConfig } from "@/lib/tap/config";
+import { normalizeWalletAddress } from "./identity";
 
 /** Accepts either the default db or a transaction client from db.transaction(). */
 export type DbClient = typeof db;
@@ -11,7 +12,6 @@ export function withClient(client?: DbClient | unknown): DbClient {
 
 export interface UserRow {
   id: string;
-  fid: string;
   username: string | null;
   displayName: string | null;
   balance: number;
@@ -31,7 +31,6 @@ export interface UserProfileInput {
 
 function mapUserRow(row: {
   id: string;
-  fid: string;
   username: string | null;
   displayName: string | null;
   balance: unknown;
@@ -45,7 +44,6 @@ function mapUserRow(row: {
 }): UserRow {
   return {
     id: row.id,
-    fid: row.fid,
     username: row.username ?? null,
     displayName: row.displayName ?? null,
     balance: row.balance as number,
@@ -59,33 +57,44 @@ function mapUserRow(row: {
   };
 }
 
-export async function getUserByFid(
-  fid: string,
+function getNormalizedAddressOrThrow(address: string): string {
+  const normalized = normalizeWalletAddress(address);
+  if (!normalized) {
+    throw new Error("Invalid wallet address");
+  }
+  return normalized;
+}
+
+export async function getUserByAddress(
+  address: string,
   client?: DbClient | unknown
 ): Promise<UserRow | null> {
+  const normalizedAddress = normalizeWalletAddress(address);
+  if (!normalizedAddress) return null;
   const c = withClient(client);
   const rows = await c
     .select()
     .from(usersTable)
-    .where(eq(usersTable.fid, fid))
+    .where(eq(usersTable.walletAddress, normalizedAddress))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
   return mapUserRow(row);
 }
 
-export async function getOrCreateUserByFid(
-  fid: string,
+export async function getOrCreateUserByAddress(
+  address: string,
   profile?: UserProfileInput | null
 ): Promise<UserRow> {
-  const existing = await getUserByFid(fid);
+  const normalizedAddress = getNormalizedAddressOrThrow(address);
+  const existing = await getUserByAddress(normalizedAddress);
   if (existing) {
     if (
       profile &&
       (profile.username !== undefined || profile.displayName !== undefined)
     ) {
       await updateUserProfile(existing.id, profile);
-      return (await getUserByFid(fid)) ?? existing;
+      return (await getUserByAddress(normalizedAddress)) ?? existing;
     }
     return existing;
   }
@@ -93,16 +102,47 @@ export async function getOrCreateUserByFid(
   const inserted = await db
     .insert(usersTable)
     .values({
-      fid,
+      walletAddress: normalizedAddress,
       username: profile?.username ?? null,
       displayName: profile?.displayName ?? null,
       energy: tapConfig.ENERGY_MAX,
       lastEnergyAt: now,
     })
+    .onConflictDoNothing({ target: usersTable.walletAddress })
     .returning();
   const row = inserted[0];
-  if (!row) throw new Error("Failed to create user");
-  return mapUserRow(row);
+  if (row) return mapUserRow(row);
+
+  const created = await getUserByAddress(normalizedAddress);
+  if (!created) throw new Error("Failed to create user");
+
+  if (
+    profile &&
+    (profile.username !== undefined || profile.displayName !== undefined)
+  ) {
+    await updateUserProfile(created.id, profile);
+    return (await getUserByAddress(normalizedAddress)) ?? created;
+  }
+
+  return created;
+}
+
+export async function attachFidToUser(
+  userId: string,
+  fid: string,
+  client?: DbClient | unknown
+): Promise<void> {
+  const normalizedFid = fid.trim();
+  if (!/^\d+$/.test(normalizedFid)) return;
+
+  const c = withClient(client);
+  await c
+    .insert(userFidsTable)
+    .values({
+      userId,
+      fid: normalizedFid,
+    })
+    .onConflictDoNothing({ target: userFidsTable.fid });
 }
 
 /** Update username and/or display_name from miniapp context. */
@@ -240,25 +280,3 @@ export async function addBalance(
   return (row?.balance as number) ?? 0;
 }
 
-/** Set wallet address only if currently null. Returns the effective wallet (set or existing). */
-export async function setWalletIfMissing(
-  userId: string,
-  walletAddress: string,
-  client?: DbClient | unknown
-): Promise<string> {
-  const c = withClient(client);
-  const updated = await c
-    .update(usersTable)
-    .set({ walletAddress })
-    .where(and(eq(usersTable.id, userId), sql`${usersTable.walletAddress} IS NULL`))
-    .returning({ walletAddress: usersTable.walletAddress });
-  const row = updated[0];
-  if (row?.walletAddress) return row.walletAddress as string;
-  const current = await c
-    .select({ walletAddress: usersTable.walletAddress })
-    .from(usersTable)
-    .where(eq(usersTable.id, userId))
-    .limit(1);
-  const existing = current[0]?.walletAddress ?? null;
-  return existing ?? walletAddress;
-}

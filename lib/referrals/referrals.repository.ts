@@ -10,25 +10,23 @@ function withClient(client?: ReferralsDbClient | unknown): ReferralsDbClient {
 
 export interface UserWithReferralRow {
   id: string;
-  fid: string;
   referralCode: string | null;
   usedReferralCode: string | null;
 }
 
-export async function getUserWithReferralByFid(
-  fid: string,
+export async function getUserWithReferralByAddress(
+  address: string,
   client?: ReferralsDbClient | unknown
 ): Promise<UserWithReferralRow | null> {
   const c = withClient(client);
   const rows = await c
     .select({
       id: users.id,
-      fid: users.fid,
       referralCode: users.referralCode,
       usedReferralCode: users.usedReferralCode,
     })
     .from(users)
-    .where(eq(users.fid, fid))
+    .where(eq(users.walletAddress, address))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
@@ -91,7 +89,6 @@ export async function findUserByReferralCode(
   const rows = await c
     .select({
       id: users.id,
-      fid: users.fid,
       referralCode: users.referralCode,
       usedReferralCode: users.usedReferralCode,
     })

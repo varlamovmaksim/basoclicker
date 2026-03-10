@@ -12,7 +12,7 @@ export async function POST(
   const debugTiming = isDebugTimingEnabled(request);
   const timings: Record<string, number> = {};
 
-  let auth: { fid: string } | null;
+  let auth: { address: string } | null;
   if (debugTiming) {
     const { result, ms } = await measureAsync("auth", () =>
       getAuthFromRequest(request)

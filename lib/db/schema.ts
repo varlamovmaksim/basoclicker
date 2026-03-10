@@ -13,7 +13,6 @@ import {
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
-  fid: varchar("fid", { length: 64 }).notNull().unique(),
   username: varchar("username", { length: 128 }),
   displayName: varchar("display_name", { length: 128 }),
   balance: bigint("balance", { mode: "number" }).notNull().default(0),
@@ -22,13 +21,33 @@ export const users = pgTable("users", {
   lastCommitAt: timestamp("last_commit_at", { withTimezone: true }),
   lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
   avgTps: bigint("avg_tps", { mode: "number" }),
-  walletAddress: varchar("wallet_address", { length: 42 }),
+  walletAddress: varchar("wallet_address", { length: 42 }).unique(),
   referralCode: varchar("referral_code", { length: 16 }),
   usedReferralCode: varchar("used_referral_code", { length: 16 }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("users_referral_code_unique").on(table.referralCode),
+]);
+
+export const userFids = pgTable(
+  "user_fids",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    fid: varchar("fid", { length: 64 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.fid] }),
+    uniqueIndex("user_fids_fid_unique").on(table.fid),
+    index("user_fids_user_id_idx").on(table.userId),
+  ]
+);
 
 export const boosters = pgTable(
   "boosters",

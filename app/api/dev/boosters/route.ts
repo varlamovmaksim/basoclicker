@@ -25,5 +25,5 @@ export async function POST(
     );
   }
 
-  return handleSetDevBoosterCount(request, { fid: auth.fid });
+  return handleSetDevBoosterCount(request, { address: auth.address });
 }

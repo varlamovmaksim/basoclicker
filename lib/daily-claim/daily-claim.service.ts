@@ -1,14 +1,13 @@
-import { setWalletIfMissing } from "@/lib/user/user.repository";
 import {
   createDailyClaimAndAddPoints,
   getLastDailyClaimSince,
-  getUserForDailyClaimByFid,
+  getUserForDailyClaimByAddress,
   hasDailyClaimWithTxHash,
   runInTransaction,
 } from "./daily-claim.repository";
 
 export interface DailyClaimAuthUser {
-  fid: string;
+  address: string;
 }
 
 export type DailyClaimResult =
@@ -128,7 +127,7 @@ export async function getDailyClaimStatus(
   auth: DailyClaimAuthUser,
   chainId: number = DEFAULT_CHAIN_ID
 ): Promise<DailyClaimStatus | null> {
-  const user = await getUserForDailyClaimByFid(auth.fid);
+  const user = await getUserForDailyClaimByAddress(auth.address);
   if (!user) return null;
 
   const now = new Date();
@@ -215,16 +214,12 @@ export async function verifyAndApplyDailyClaim(
   const POINTS_PER_CLAIM = 1000;
 
   return runInTransaction(async (txClient) => {
-    const user = await getUserForDailyClaimByFid(auth.fid, txClient);
+    const user = await getUserForDailyClaimByAddress(auth.address, txClient);
     if (!user) {
       return { ok: false, reason: "user_not_found" } as DailyClaimResult;
     }
 
-    const finalWallet =
-      user.walletAddress ??
-      (await setWalletIfMissing(user.id, claimant, txClient));
-
-    if (finalWallet && finalWallet.toLowerCase() !== claimant) {
+    if (!user.walletAddress || user.walletAddress.toLowerCase() !== claimant) {
       return { ok: false, reason: "wallet_mismatch" } as DailyClaimResult;
     }
 
