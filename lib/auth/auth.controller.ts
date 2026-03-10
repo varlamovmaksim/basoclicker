@@ -12,7 +12,20 @@ function deriveDevFid(fingerprint: string): string {
   return String(1 + (n % 2147483646));
 }
 
+/**
+ * Host used for JWT verification. In production, prefer NEXT_PUBLIC_URL so the
+ * domain matches the miniapp registration (homeUrl); otherwise quick-auth
+ * verification can fail when request origin/host differ (e.g. vercel.app vs custom domain).
+ */
 export function getUrlHost(request: NextRequest): string {
+  if (process.env.VERCEL_ENV === "production" && process.env.NEXT_PUBLIC_URL) {
+    try {
+      return new URL(process.env.NEXT_PUBLIC_URL).host;
+    } catch {
+      // fall through
+    }
+  }
+
   const origin = request.headers.get("origin");
   if (origin) {
     try {
@@ -26,9 +39,6 @@ export function getUrlHost(request: NextRequest): string {
   const host = request.headers.get("host");
   if (host) return host;
 
-  if (process.env.VERCEL_ENV === "production" && process.env.NEXT_PUBLIC_URL) {
-    return new URL(process.env.NEXT_PUBLIC_URL).host;
-  }
   if (process.env.VERCEL_URL) {
     return new URL(`https://${process.env.VERCEL_URL}`).host;
   }

@@ -231,6 +231,10 @@ export function useTapGame(): UseTapGameReturn {
   /** In prod, token comes from host via sdk.quickAuth.getToken() (triggers sign-in). No token => no session/commit/state requests. */
   const getToken = useCallback(async (): Promise<string | null> => {
     if (IS_DEV) return "dev";
+    // When opened in Base app from localhost, quick-auth often isn't available; use dev token so session/commit still work.
+    if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+      return "dev";
+    }
     const TIMEOUT_MS = 10_000;
     try {
       const { token } = await Promise.race([
@@ -250,6 +254,11 @@ export function useTapGame(): UseTapGameReturn {
       const token = await getToken();
       tokenRef.current = token ?? null;
       if (!token) {
+        if (typeof window !== "undefined") {
+          console.warn(
+            "[tap] No auth token: session/commit not sent. Ensure miniapp sign-in completed and NEXT_PUBLIC_URL matches miniapp domain."
+          );
+        }
         setError("Not signed in");
         setIsLoading(false);
         return false;
