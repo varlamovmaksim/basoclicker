@@ -14,21 +14,21 @@ export function SafeArea({
 }: SafeAreaProps): React.ReactElement {
   const { context, isReady } = useMiniApp();
 
-  // Only apply insets when running inside a mini app
-  if (!isReady || !context) {
-    return <div className={className}>{children}</div>;
-  }
-
-  const insets = context.client?.safeAreaInsets;
+  const insets =
+    isReady && context?.client?.safeAreaInsets
+      ? context.client.safeAreaInsets
+      : null;
 
   return (
     <div
       className={className}
       style={{
-        paddingTop: insets?.top ?? 0,
-        paddingBottom: insets?.bottom ?? 0,
-        paddingLeft: insets?.left ?? 0,
-        paddingRight: insets?.right ?? 0,
+        minHeight: "100dvh",
+        backgroundColor: "#fff",
+        paddingTop: insets?.top ?? "env(safe-area-inset-top, 0)",
+        paddingBottom: insets?.bottom ?? "env(safe-area-inset-bottom, 0)",
+        paddingLeft: insets?.left ?? "env(safe-area-inset-left, 0)",
+        paddingRight: insets?.right ?? "env(safe-area-inset-right, 0)",
       }}
     >
       {children}

@@ -33,9 +33,9 @@
     font-family: var(--font-inter), sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Extend background into safe areas (notch, home indicator); content stays inset */
-    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
-      env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+    /* Extend background into safe areas (notch, home indicator); content stays inset. Bottom inset applied by SafeArea with white bg so no dark strip. */
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) 0
+      env(safe-area-inset-left, 0);
   }
 
   code {
