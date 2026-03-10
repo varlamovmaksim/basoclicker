@@ -78,7 +78,8 @@ export function MiniAppProvider({
 
     const init = async (): Promise<void> => {
       try {
-        const isInApp = await sdk.isInMiniApp();
+        // SDK default is 1s; host (Base/Farcaster) may need longer to send context in prod
+        const isInApp = await sdk.isInMiniApp(TIMEOUT_MS);
         if (cancelled) return;
         if (!isInApp) {
           // Opened in browser or not in miniapp: still mark ready with fallback so UI can render (e.g. "Open in Farcaster")
