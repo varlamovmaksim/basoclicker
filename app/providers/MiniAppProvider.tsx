@@ -101,7 +101,7 @@ export function MiniAppProvider({
           ),
         ]);
         if (!cancelled) setIsReady(true);
-      } catch (e) {
+      } catch {
         if (cancelled) return;
         // Timeout or error: allow app to render so user sees content or error state
         setContext(getDevContext());
