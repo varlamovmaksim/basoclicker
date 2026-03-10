@@ -71,42 +71,106 @@ export function MiniAppProvider({
   const [isReady, setIsReady] = useState(IS_DEV);
 
   useEffect(() => {
-    if (IS_DEV) return;
+    const initId = Math.random().toString(36).slice(2, 8);
+    const log = (step: string, detail?: Record<string, unknown>) => {
+      const payload = detail ? ` ${JSON.stringify(detail)}` : "";
+      console.log(`[auth] init(${initId}) ${step}${payload}`);
+    };
+    const warn = (step: string, err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.warn(`[auth] init(${initId}) ${step}`, msg, stack ? { stack: stack.slice(0, 200) } : "");
+    };
+
+    if (IS_DEV) {
+      log("skip (IS_DEV=true)", { isReady: true });
+      return;
+    }
 
     let cancelled = false;
     const TIMEOUT_MS = 10_000;
+    const READY_TIMEOUT_MS = 5000;
+    const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+
+    log("start", {
+      timeoutMs: TIMEOUT_MS,
+      readyTimeoutMs: READY_TIMEOUT_MS,
+      origin: typeof window !== "undefined" ? window.location.origin : "",
+      nextPublicUrl: process.env.NEXT_PUBLIC_URL ?? "(not set)",
+    });
 
     const init = async (): Promise<void> => {
       try {
-        // SDK default is 1s; host (Base/Farcaster) may need longer to send context in prod. Types omit timeoutMs.
+        // Step 1: isInMiniApp
+        log("step: isInMiniApp", { timeoutMs: TIMEOUT_MS });
+        const t1 = typeof performance !== "undefined" ? performance.now() : 0;
         const isInApp = await (sdk.isInMiniApp as (timeoutMs?: number) => Promise<boolean>)(TIMEOUT_MS);
-        if (cancelled) return;
+        const elapsed1 = typeof performance !== "undefined" ? Math.round(performance.now() - t1) : 0;
+        if (cancelled) {
+          log("cancelled after isInMiniApp");
+          return;
+        }
+        log("step: isInMiniApp done", { isInApp, elapsedMs: elapsed1 });
         if (!isInApp) {
-          // Opened in browser or not in miniapp: still mark ready with fallback so UI can render (e.g. "Open in Farcaster")
+          log("not in miniapp → fallback context");
           setContext(getDevContext());
           setIsReady(true);
           return;
         }
-        // In prod, host (Base) often sends context only after ready(). Call ready() first, then wait for context.
+
+        // Step 2: sdk.actions.ready()
+        log("step: ready()", { timeoutMs: READY_TIMEOUT_MS });
+        const t2 = typeof performance !== "undefined" ? performance.now() : 0;
         await Promise.race([
           sdk.actions.ready(),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("ready_timeout")), 5000)
+            setTimeout(() => reject(new Error("ready_timeout")), READY_TIMEOUT_MS)
           ),
         ]);
-        if (cancelled) return;
+        const elapsed2 = typeof performance !== "undefined" ? Math.round(performance.now() - t2) : 0;
+        if (cancelled) {
+          log("cancelled after ready()");
+          return;
+        }
+        log("step: ready() done", { elapsedMs: elapsed2 });
+
+        // Step 3: sdk.context
+        log("step: context", { timeoutMs: TIMEOUT_MS });
+        const t3 = typeof performance !== "undefined" ? performance.now() : 0;
         const ctx = await Promise.race([
           sdk.context,
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error("context_timeout")), TIMEOUT_MS)
           ),
         ]);
-        if (cancelled) return;
+        const elapsed3 = typeof performance !== "undefined" ? Math.round(performance.now() - t3) : 0;
+        if (cancelled) {
+          log("cancelled after context");
+          return;
+        }
+        const totalMs = typeof performance !== "undefined" ? Math.round(performance.now() - t0) : 0;
+        log("step: context done", {
+          elapsedMs: elapsed3,
+          totalMs,
+          fid: ctx?.user?.fid ?? null,
+          hasUser: !!ctx?.user,
+        });
         setContext(ctx);
         setIsReady(true);
-      } catch {
-        if (cancelled) return;
-        // Timeout or error: allow app to render so user sees content or error state
+        log("init complete");
+      } catch (e) {
+        if (cancelled) {
+          log("cancelled in catch");
+          return;
+        }
+        const failedStep =
+          e instanceof Error && e.message === "ready_timeout"
+            ? "ready()"
+            : e instanceof Error && e.message === "context_timeout"
+              ? "context"
+              : "unknown";
+        warn(`init failed (${failedStep})`, e);
+        console.warn("[auth] MiniAppProvider: using fallback context after init failure");
         setContext(getDevContext());
         setIsReady(true);
       }
@@ -114,6 +178,7 @@ export function MiniAppProvider({
     init();
     return () => {
       cancelled = true;
+      log("cleanup (cancelled=true)");
     };
   }, []);
 

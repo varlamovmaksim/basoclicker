@@ -246,6 +246,10 @@ export function useTapGame(): UseTapGameReturn {
       return "dev";
     }
     const TIMEOUT_MS = 10_000;
+    if (typeof window !== "undefined") {
+      console.log("[auth] getToken() called");
+    }
+    const start = typeof performance !== "undefined" ? performance.now() : 0;
     try {
       const { token } = await Promise.race([
         sdk.quickAuth.getToken(),
@@ -253,26 +257,36 @@ export function useTapGame(): UseTapGameReturn {
           setTimeout(() => reject(new Error("quickauth_timeout")), TIMEOUT_MS)
         ),
       ]);
+      const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
+      if (typeof window !== "undefined") {
+        console.log("[auth] getToken() =>", token ? "token received" : "no token", `(${elapsed}ms)`);
+      }
       return token ?? null;
-    } catch {
+    } catch (e) {
+      const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
+      if (typeof window !== "undefined") {
+        console.warn("[auth] getToken() failed", e instanceof Error ? e.message : e, `(${elapsed}ms)`);
+      }
       return null;
     }
   }, []);
 
   const fetchSession = useCallback(async (): Promise<boolean> => {
+    if (typeof window !== "undefined") console.log("[auth] fetchSession: start");
     try {
       const token = await getToken();
       tokenRef.current = token ?? null;
       if (!token) {
         if (typeof window !== "undefined") {
           console.warn(
-            "[tap] No auth token: session/commit not sent. Ensure miniapp sign-in completed and NEXT_PUBLIC_URL matches miniapp domain."
+            "[auth] fetchSession: no token — session/commit disabled. Check miniapp sign-in and NEXT_PUBLIC_URL vs miniapp domain."
           );
         }
         setError("Not signed in");
         setIsLoading(false);
         return false;
       }
+      if (typeof window !== "undefined") console.log("[auth] fetchSession: token ok, POST /api/auth/session");
       const base = getApiBase();
       const body: Record<string, unknown> = {};
       const inMiniApp = await sdk.isInMiniApp();
@@ -326,6 +340,7 @@ export function useTapGame(): UseTapGameReturn {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
+        if (typeof window !== "undefined") console.warn("[auth] fetchSession: POST failed", res.status);
         setError("Failed to start session");
         setIsLoading(false);
         return false;
@@ -370,6 +385,7 @@ export function useTapGame(): UseTapGameReturn {
         setClientScore(data.balance);
       }
       setError(null);
+      if (typeof window !== "undefined") console.log("[auth] fetchSession: session created", data.session_id);
       logTap("fetchSession done", { session_id: data.session_id, lastCommitTime: Date.now() });
       return true;
     } catch {
@@ -380,6 +396,7 @@ export function useTapGame(): UseTapGameReturn {
   }, [getToken, context, walletAddress]);
 
   const fetchState = useCallback(async (): Promise<void> => {
+    if (typeof window !== "undefined") console.log("[auth] fetchState: getToken");
     const token = await getToken();
     if (!token) return;
     const base = getApiBase();
@@ -422,6 +439,7 @@ export function useTapGame(): UseTapGameReturn {
 
   /** Fetches state but only updates energy-related fields (and boosters). Does not clear localTapDelta or other balance/session state. */
   const fetchEnergyOnly = useCallback(async (): Promise<void> => {
+    if (typeof window !== "undefined") console.log("[auth] fetchEnergyOnly: getToken");
     const token = await getToken();
     if (!token) return;
     const base = getApiBase();
@@ -518,9 +536,13 @@ export function useTapGame(): UseTapGameReturn {
       balanceAtSend: number,
       pointsDelta: number
     ): Promise<void> => {
+      if (typeof window !== "undefined") console.log("[auth] commit: getToken for batch", { delta, pointsDelta });
       const token = await getToken();
       tokenRef.current = token ?? null;
-      if (!token || !sessionId || delta <= 0) return;
+      if (!token || !sessionId || delta <= 0) {
+        if (typeof window !== "undefined" && !token) console.warn("[auth] commit: skipped (no token)");
+        return;
+      }
 
       const seq = seqRef.current + 1;
       commitInFlightRef.current = true;
@@ -794,17 +816,22 @@ export function useTapGame(): UseTapGameReturn {
   const sessionFetchClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     // In production, wait for miniapp context (and thus username/display_name) before creating session
-    if (!IS_DEV && !isReady) return;
+    if (!IS_DEV && !isReady) {
+      if (typeof window !== "undefined") console.log("[auth] session effect: waiting for isReady (miniapp context)");
+      return;
+    }
     if (sessionFetchClearTimeoutRef.current) {
       clearTimeout(sessionFetchClearTimeoutRef.current);
       sessionFetchClearTimeoutRef.current = null;
     }
     if (!sessionFetchPromiseRef.current) {
+      if (typeof window !== "undefined") console.log("[auth] session effect: starting fetchSession", { isReady, IS_DEV });
       sessionFetchPromiseRef.current = fetchSession();
     }
     const promise = sessionFetchPromiseRef.current;
     let cancelled = false;
-    void promise.then((_ok) => {
+    void promise.then((ok) => {
+      if (!cancelled && typeof window !== "undefined") console.log("[auth] session effect: fetchSession finished", { ok });
       if (!cancelled) setIsLoading(false);
     });
     return () => {
