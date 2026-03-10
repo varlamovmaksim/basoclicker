@@ -75,12 +75,22 @@ function logTap(msg: string, ...args: unknown[]): void {
   }
 }
 
-/** API base URL. In prod, prefer NEXT_PUBLIC_URL so requests hit the app origin even if iframe origin differs. */
+/**
+ * API base URL. Use current origin when we're already on the app domain (incl. www vs non-www)
+ * to avoid cross-origin + redirect on preflight. Otherwise use NEXT_PUBLIC_URL for iframe/miniapp.
+ */
 function getApiBase(): string {
   if (typeof window === "undefined") return "";
+  const current = window.location.hostname;
   const envUrl = process.env.NEXT_PUBLIC_URL;
   if (envUrl) {
     try {
+      const envHost = new URL(envUrl).hostname;
+      const sameHost =
+        current === envHost ||
+        current === `www.${envHost}` ||
+        envHost === `www.${current}`;
+      if (sameHost) return window.location.origin;
       return new URL(envUrl).origin;
     } catch {
       // ignore invalid URL
