@@ -5,7 +5,6 @@ import sdk from "@farcaster/miniapp-sdk";
 import { useAccount } from "wagmi";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { useMiniApp } from "@/app/providers/MiniAppProvider";
-import { farcasterConfig } from "@/farcaster.config";
 
 /** Accumulated taps are sent once per this interval (ms). */
 const COMMIT_INTERVAL_MS = 5000;
@@ -182,7 +181,7 @@ function getInitialStoredState(): StoredTapState | null {
 }
 
 export function useTapGame(): UseTapGameReturn {
-  const { context, isReady, whenReady } = useMiniApp();
+  const { context, isReady } = useMiniApp();
   const { address: walletAddress } = useAccount();
   const stored = getInitialStoredState();
   const [serverBalance, setServerBalance] = useState(stored?.serverBalance ?? 0);
@@ -207,8 +206,6 @@ export function useTapGame(): UseTapGameReturn {
   const seqRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  /** Dedupe: one in-flight getToken so multiple callers (session, commit, useBasoGame) share one verify-siwf request. */
-  const getTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const commitTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const commitInFlightRef = useRef(false);
   /** After applying a commit, stateRef is still stale; use this when scheduling from finally. */
@@ -241,90 +238,39 @@ export function useTapGame(): UseTapGameReturn {
     energyServerTime,
   };
 
-  /** In prod, token comes from host via sdk.quickAuth.getToken() (triggers sign-in). No token => no session/commit/state requests. */
+  /** Token is our app JWT from session response (or "dev" in dev). No Farcaster SIWF. */
   const getToken = useCallback(async (): Promise<string | null> => {
-    if (IS_DEV) return "dev";
-    // When opened in Base app from localhost, quick-auth often isn't available; use dev token so session/commit still work.
-    if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    if (tokenRef.current) return tokenRef.current;
+    if (IS_DEV || (typeof window !== "undefined" && window.location.hostname === "localhost")) {
       return "dev";
     }
-    if (getTokenPromiseRef.current) {
-      if (typeof window !== "undefined") console.log("[auth] getToken() reusing in-flight request");
-      return getTokenPromiseRef.current;
-    }
-    const TIMEOUT_MS = 10_000;
-    if (typeof window !== "undefined") console.log("[auth] getToken() called (new request)");
-    const start = typeof performance !== "undefined" ? performance.now() : 0;
-    const run = async (): Promise<string | null> => {
-      try {
-        if (typeof window !== "undefined") console.log("[auth] getToken() waiting for miniapp init…");
-        await whenReady();
-        if (typeof window !== "undefined") console.log("[auth] getToken() miniapp ready, calling sdk.quickAuth.getToken()");
-        const { token } = await Promise.race([
-          sdk.quickAuth.getToken(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("quickauth_timeout")), TIMEOUT_MS)
-          ),
-        ]);
-        const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
-        if (typeof window !== "undefined") {
-          console.log("[auth] getToken() =>", token ? "token received" : "no token", `(${elapsed}ms)`);
-        }
-        return token ?? null;
-      } catch (e) {
-        const elapsed = typeof performance !== "undefined" ? (performance.now() - start).toFixed(0) : "?";
-        const msg = e instanceof Error ? e.message : String(e);
-        if (typeof window !== "undefined") {
-          console.warn("[auth] getToken() failed", msg, `(${elapsed}ms)`);
-          if (msg.includes("400") || msg.includes("status 400")) {
-            const origin = typeof window !== "undefined" ? window.location.origin : "";
-            const nextPublicUrl = process.env.NEXT_PUBLIC_URL ?? "(not set)";
-            const manifestHomeUrl = farcasterConfig.miniapp.homeUrl;
-            console.warn(
-              "[auth] verify-siwf returned 400 — check domain match:",
-              { origin, nextPublicUrl, manifestHomeUrl, match: origin === manifestHomeUrl }
-            );
-            console.warn(
-              "[auth] Ensure manifest homeUrl and Farcaster app domain (https://warpcast.com/~/developers) match the URL the miniapp is opened from."
-            );
-          }
-          if (msg.includes("quickauth_timeout")) {
-            console.warn(
-              "[auth] quickauth_timeout — host did not respond in time. Complete the sign-in prompt in the app if shown, or retry."
-            );
-          }
-        }
-        return null;
-      } finally {
-        getTokenPromiseRef.current = null;
-      }
-    };
-    const promise = run();
-    getTokenPromiseRef.current = promise;
-    return promise;
-  }, [whenReady]);
+    return null;
+  }, []);
 
   const fetchSession = useCallback(async (): Promise<boolean> => {
-    if (typeof window !== "undefined") console.log("[auth] fetchSession: start");
+    const isDevOrLocalhost = IS_DEV || (typeof window !== "undefined" && window.location.hostname === "localhost");
+    if (typeof window !== "undefined") {
+      console.log("[auth] fetchSession: start");
+      const u = context?.user;
+      console.log("[auth] user (context + wallet)", {
+        fid: u?.fid ?? null,
+        username: u?.username ?? null,
+        display_name: u?.displayName ?? null,
+        address: walletAddress ?? null,
+      });
+    }
+    if (!isDevOrLocalhost && (context?.user?.fid == null || context?.user?.fid === 0)) {
+      if (typeof window !== "undefined") console.warn("[auth] fetchSession: no fid in context — skipping session");
+      setError("Not signed in");
+      setIsLoading(false);
+      return false;
+    }
     try {
-      const token = await getToken();
-      tokenRef.current = token ?? null;
-      if (!token) {
-        if (typeof window !== "undefined") {
-          console.warn(
-            "[auth] fetchSession: no token — session/commit disabled. Check miniapp sign-in and NEXT_PUBLIC_URL vs miniapp domain."
-          );
-        }
-        setError("Not signed in");
-        setIsLoading(false);
-        return false;
-      }
-      if (typeof window !== "undefined") console.log("[auth] fetchSession: token ok, POST /api/auth/session");
       const base = getApiBase();
       const body: Record<string, unknown> = {};
+      if (context?.user?.fid != null && context.user.fid !== 0) body.fid = context.user.fid;
       const inMiniApp = await sdk.isInMiniApp();
       if (inMiniApp) {
-        // In Base/miniapp: always use real SDK context for username/displayName (even when IS_DEV)
         try {
           const ctx = await sdk.context;
           if (ctx?.user) {
@@ -342,7 +288,6 @@ export function useTapGame(): UseTapGameReturn {
           }
         }
       } else if (IS_DEV && context?.user) {
-        // Not in miniapp but dev: use fake context from React state
         if (context.user.username != null && context.user.username !== "")
           body.username = context.user.username;
         if (context.user.displayName != null && context.user.displayName !== "")
@@ -350,26 +295,24 @@ export function useTapGame(): UseTapGameReturn {
       }
       if (walletAddress != null && /^0x[a-fA-F0-9]{40}$/.test(walletAddress))
         body.wallet_address = walletAddress;
-
-      // Optional referral code from URL (?ref=...), applied on first auth.
       if (typeof window !== "undefined") {
         try {
           const url = new URL(window.location.href);
           const ref = url.searchParams.get("ref");
-          if (ref) {
-            body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
-          }
+          if (ref) body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
         } catch {
-          // ignore malformed URL
+          // ignore
         }
       }
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...getDevAuthHeaders(),
+      };
+      if (isDevOrLocalhost) headers.Authorization = "Bearer dev";
+      if (typeof window !== "undefined") console.log("[auth] fetchSession: POST /api/auth/session (fid from context)");
       const res = await fetch(`${base}/api/auth/session`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          ...getDevAuthHeaders(),
-        },
+        headers,
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -382,6 +325,7 @@ export function useTapGame(): UseTapGameReturn {
         session_id: string;
         balance: number;
         last_seq: number;
+        token: string;
         energy?: number;
         energy_max?: number;
         energy_regen_per_sec?: number;
@@ -390,6 +334,7 @@ export function useTapGame(): UseTapGameReturn {
         mining_points_per_sec?: number;
         boosters?: BoosterListItem[];
       };
+      if (typeof data.token === "string") tokenRef.current = data.token;
       setSessionId(data.session_id);
       setServerBalance(data.balance);
       setLastServerSeq(data.last_seq);
@@ -426,7 +371,7 @@ export function useTapGame(): UseTapGameReturn {
       setIsLoading(false);
       return false;
     }
-  }, [getToken, context, walletAddress]);
+  }, [context, walletAddress]);
 
   const fetchState = useCallback(async (): Promise<void> => {
     if (typeof window !== "undefined") console.log("[auth] fetchState: getToken");

@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { Errors } from "@farcaster/quick-auth";
-import { getAuthenticatedUser } from "./auth.service";
+import { isAppToken, verifyAppToken, type AppJwtPayload } from "./app-jwt";
 
 /** Deterministic fid from device fingerprint (dev only). Same seed → same fid. */
 function deriveDevFid(fingerprint: string): string {
@@ -48,7 +47,7 @@ export function getUrlHost(request: NextRequest): string {
 const IS_DEV = process.env.NEXT_PUBLIC_IS_DEV === "true";
 const DEV_AUTH_FID = "0";
 
-/** Extract auth user (fid) from request. Returns null if missing/invalid token. */
+/** Extract auth user (fid) from request. Accepts our app JWT or dev token. Returns null if missing/invalid. */
 export async function getAuthFromRequest(
   request: NextRequest
 ): Promise<{ fid: string } | null> {
@@ -59,13 +58,15 @@ export async function getAuthFromRequest(
     const fp = request.headers.get("X-Device-Fingerprint");
     return { fid: fp ? deriveDevFid(fp) : DEV_AUTH_FID };
   }
-  const domain = getUrlHost(request);
-  try {
-    const user = await getAuthenticatedUser(token, domain);
-    return { fid: user.fid };
-  } catch {
-    return null;
+  if (isAppToken(token)) {
+    try {
+      const payload = verifyAppToken(token) as AppJwtPayload;
+      return { fid: String(payload.sub) };
+    } catch {
+      return null;
+    }
   }
+  return null;
 }
 
 /**
@@ -90,25 +91,21 @@ export async function handleGetAuth(
     });
   }
 
-  const domain = getUrlHost(request);
-
-  try {
-    const user = await getAuthenticatedUser(token, domain);
-    return NextResponse.json({
-      success: true,
-      user: {
-        fid: user.fid,
-        issuedAt: user.issuedAt,
-        expiresAt: user.expiresAt,
-      },
-    });
-  } catch (e) {
-    if (e instanceof Errors.InvalidTokenError) {
-      return NextResponse.json({ message: "Invalid token" }, { status: 401 });
+  if (isAppToken(token)) {
+    try {
+      const payload = verifyAppToken(token) as AppJwtPayload;
+      return NextResponse.json({
+        success: true,
+        user: {
+          fid: String(payload.sub),
+          issuedAt: payload.iat,
+          expiresAt: payload.exp,
+        },
+      });
+    } catch {
+      return NextResponse.json({ message: "Invalid or expired token" }, { status: 401 });
     }
-    if (e instanceof Error) {
-      return NextResponse.json({ message: e.message }, { status: 500 });
-    }
-    throw e;
   }
+
+  return NextResponse.json({ message: "Invalid token" }, { status: 401 });
 }

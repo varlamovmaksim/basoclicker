@@ -1,18 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth/auth.controller";
+import { issueAppToken } from "@/lib/auth/app-jwt";
 import { startSession } from "@/lib/tap/tap.service";
 import { applyReferralCodeOnAuth } from "@/lib/referrals/referrals.service";
 
 /**
- * POST /api/auth/session — create a new session for the authenticated user.
- * Returns session_id, balance, last_seq for initial client state.
+ * POST /api/auth/session — create a session and return our JWT.
+ * Auth: either (1) Authorization: Bearer <our JWT or dev>, or (2) body.fid (miniapp context; no Bearer).
+ * Returns session_id, balance, last_seq, and token (our JWT for subsequent requests).
  */
 export async function POST(
   request: NextRequest
 ): Promise<NextResponse> {
-  const auth = await getAuthFromRequest(request);
-  if (!auth) {
-    return NextResponse.json({ message: "Missing or invalid token" }, { status: 401 });
+  let fid: string | null = null;
+  const authorization = request.headers.get("Authorization");
+  if (authorization?.startsWith("Bearer ")) {
+    const auth = await getAuthFromRequest(request);
+    if (auth) fid = auth.fid;
   }
 
   let deviceFingerprint: string | undefined;
@@ -20,10 +24,13 @@ export async function POST(
   let displayName: string | null | undefined;
   let walletAddress: string | undefined;
   let referralCodeFromQuery: string | undefined;
+  let fidFromBody: string | null = null;
   try {
     const body = await request.json().catch(() => null);
     if (body != null && typeof body === "object") {
       const b = body as Record<string, unknown>;
+      if (typeof b.fid === "number") fidFromBody = String(b.fid);
+      else if (typeof b.fid === "string" && /^\d+$/.test(b.fid)) fidFromBody = b.fid;
       if (typeof b.device_fingerprint === "string")
         deviceFingerprint = b.device_fingerprint;
       if (b.username !== undefined)
@@ -43,18 +50,30 @@ export async function POST(
     // optional body
   }
 
+  if (!fid && fidFromBody) fid = fidFromBody;
+  if (!fid) {
+    return NextResponse.json({ message: "Missing auth: send Bearer token or body.fid (miniapp context)" }, { status: 401 });
+  }
+
   if (referralCodeFromQuery) {
-    // Fire-and-forget: referral ошибки не должны ломать авторизацию.
     void applyReferralCodeOnAuth(
-      { fid: auth.fid, username, displayName },
+      { fid, username, displayName },
       referralCodeFromQuery
     );
   }
 
   const result = await startSession(
-    { fid: auth.fid, username, displayName },
+    { fid, username, displayName },
     deviceFingerprint,
     walletAddress
   );
-  return NextResponse.json(result);
+
+  let token: string;
+  try {
+    token = issueAppToken(fid);
+  } catch {
+    return NextResponse.json({ message: "Server auth misconfiguration" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ...result, token });
 }
