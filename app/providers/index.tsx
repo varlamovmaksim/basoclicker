@@ -3,7 +3,7 @@
 import { type ReactNode, useState } from "react";
 import { base } from "wagmi/chains";
 import { createConfig, http, WagmiProvider } from "wagmi";
-import { baseAccount } from "wagmi/connectors";
+import { baseAccount, injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { MiniAppProvider } from "./MiniAppProvider";
@@ -22,6 +22,7 @@ export const config = createConfig({
       appName: farcasterConfig.miniapp.name,
       appLogoUrl: farcasterConfig.miniapp.iconUrl,
     }),
+    injected(),
   ],
 });
 

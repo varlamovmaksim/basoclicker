@@ -2,10 +2,12 @@
 
 import { useCallback, useState } from "react";
 import sdk from "@farcaster/miniapp-sdk";
+import { useConnect, useDisconnect, useAccount } from "wagmi";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { encodeFunctionData } from "viem";
 import { getVaultAddress, getTokenAddress, TAPPER_VAULT_ABI } from "@/app/lib/contracts";
 import { getPaymasterServiceUrl } from "@/app/lib/sponsoredTx";
+import { config } from "@/app/providers";
 import type { TapGameDebug, TapGameState } from "../hooks/useTapGame";
 
 export interface DevViewProps {
@@ -51,6 +53,11 @@ export function DevView({
     }).slice(0, 10);
   const [restoring, setRestoring] = useState(false);
   const [boosterUpdating, setBoosterUpdating] = useState<string | null>(null);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const { address, connector } = useAccount();
+  const { connect, isPending: isConnecting, error: connectError } = useConnect();
+  const { disconnect } = useDisconnect();
+  const injectedConnector = config.connectors.find((c) => c.id === "injected" || c.name?.toLowerCase().includes("injected"));
 
   const handleRestoreEnergy = useCallback(async () => {
     setRestoring(true);
@@ -172,7 +179,78 @@ export function DevView({
           >
             {restoring ? "Restoring…" : "Restore energy"}
           </button>
+          <button
+            type="button"
+            className="rounded-xl border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 disabled:opacity-50"
+            onClick={(e) => {
+              e.preventDefault();
+              setWalletModalOpen(true);
+            }}
+          >
+            Connect wallet
+          </button>
         </div>
+
+        {walletModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wallet-modal-title"
+          >
+            <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+              <h2 id="wallet-modal-title" className="text-sm font-bold text-slate-800">
+                Подключить кошелёк
+              </h2>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Обычный браузерный кошелёк (MetaMask, Rabby и т.д.) для тестов в dev.
+              </p>
+              {address ? (
+                <div className="mt-3 space-y-2">
+                  <p className="font-mono text-[11px] text-slate-600">
+                    {shortAddr(address)}
+                    {connector?.name ? ` · ${connector.name}` : ""}
+                  </p>
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800"
+                    onClick={() => {
+                      disconnect();
+                      setWalletModalOpen(false);
+                    }}
+                  >
+                    Отключить
+                  </button>
+                </div>
+              ) : injectedConnector ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="w-full rounded-xl border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-800 disabled:opacity-50"
+                    onClick={() => {
+                      connect({ connector: injectedConnector });
+                    }}
+                    disabled={isConnecting}
+                  >
+                    {isConnecting ? "Подключение…" : "Браузерный кошелёк (injected)"}
+                  </button>
+                  {connectError && (
+                    <p className="mt-2 text-[11px] text-red-600">{connectError.message}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-[11px] text-amber-600">Коннектор injected не найден.</p>
+              )}
+              <button
+                type="button"
+                className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50 py-2 text-xs font-medium text-slate-600"
+                onClick={() => setWalletModalOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="mt-2 space-y-1">
           <div className="text-[11px] font-bold text-slate-500">Boosters</div>
