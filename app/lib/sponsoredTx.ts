@@ -2,26 +2,20 @@
 
 /**
  * Base sponsored transactions via EIP-5792 wallet_sendCalls + ERC-7677 paymasterService.
- * In Base App context the wallet supports paymaster and we use the default Base paymaster
- * URL so gasless works without any env. Env NEXT_PUBLIC_BASE_PAYMASTER_SERVICE_URL overrides.
+ * In Base App context the wallet supports paymaster and we use the default Base paymaster URL.
  */
 
 const BASE_CHAIN_ID = 8453;
 const BASE_CHAIN_ID_HEX = "0x2105";
 
-/** Default paymaster URL for Base (from Base docs). Used when app runs in Base App and no env is set. */
+/** Default paymaster URL for Base. */
 const DEFAULT_BASE_PAYMASTER_URL = "https://paymaster.base.org/api/v1/sponsor";
 
 /**
- * Returns paymaster service URL for sponsored (gasless) transactions.
- * - If NEXT_PUBLIC_BASE_PAYMASTER_SERVICE_URL is set, uses that.
- * - Else on Base chain (8453) returns the default Base paymaster URL so gasless works in base.app without env.
- * - Otherwise returns null.
+ * Returns paymaster service URL for sponsored (gasless) transactions on Base chain.
  */
 export function getPaymasterServiceUrl(chainId?: number): string | null {
   if (typeof window === "undefined") return null;
-  const envUrl = process.env.NEXT_PUBLIC_BASE_PAYMASTER_SERVICE_URL;
-  if (envUrl && typeof envUrl === "string" && envUrl.startsWith("http")) return envUrl;
   if (chainId === BASE_CHAIN_ID) return DEFAULT_BASE_PAYMASTER_URL;
   return null;
 }

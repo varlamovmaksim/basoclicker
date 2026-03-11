@@ -32,6 +32,7 @@ import {
   TOKEN_DECIMALS,
 } from "@/app/lib/contracts";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
+import { getPaymasterServiceUrl } from "@/app/lib/sponsoredTx";
 import { encodeFunctionData, parseUnits } from "viem";
 import { base as baseChain } from "wagmi/chains";
 
@@ -403,12 +404,13 @@ export function useBasoGame(): UseBasoGameReturn {
             abi: TAPPER_VAULT_ABI,
             functionName: "recordDaily",
           });
-          // EIP-5792 batch: one call (recordDaily). No paymaster/capabilities in code; gas = account or Base infra.
+          const paymasterUrl = getPaymasterServiceUrl(chainId);
           const { id } = await sendCalls(config, {
             account: walletAddress,
             calls: [{ to: vaultAddr, data: recordDailyData }],
             chainId,
             connector: connectorToUse,
+            capabilities: paymasterUrl ? { paymasterService: { url: paymasterUrl } } : undefined,
           });
           showToast("Waiting for confirmation…");
           const maxAttempts = 60;
@@ -641,7 +643,7 @@ export function useBasoGame(): UseBasoGameReturn {
     try {
       if (tryWagmiCalls && connectorToUse) {
         showToast("Confirm donate…");
-        // EIP-5792 batch: approve + donate. No paymaster in code; gas = account or Base infra.
+        const paymasterUrl = getPaymasterServiceUrl(chainId);
         const approveData = encodeFunctionData({
           abi: ERC20_ABI,
           functionName: "approve",
@@ -660,6 +662,7 @@ export function useBasoGame(): UseBasoGameReturn {
           ],
           chainId,
           connector: connectorToUse,
+          capabilities: paymasterUrl ? { paymasterService: { url: paymasterUrl } } : undefined,
         });
         showToast("Waiting for confirmation…");
         const maxAttempts = 60;
