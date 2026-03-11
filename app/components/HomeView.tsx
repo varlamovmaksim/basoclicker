@@ -84,10 +84,10 @@ export function HomeView(): React.ReactElement {
               </div>
             </div>
 
-            <div className="mt-2">
+            <div className="mt-2 flex flex-1 min-h-0 flex-col">
               <div
                 ref={stageRef}
-                className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[min(260px,32vh)] justify-center items-center shadow-sm stageSkinWhite"
+                className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex flex-1 min-h-[min(260px,32vh)] justify-center items-center shadow-sm stageSkinWhite"
               >
                 <button
                   type="button"
