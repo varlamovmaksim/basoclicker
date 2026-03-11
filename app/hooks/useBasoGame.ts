@@ -805,13 +805,6 @@ export function useBasoGame(): UseBasoGameReturn {
     refreshLeaderboard();
   }, [refreshLeaderboard]);
 
-  // Re-fetch leaderboard when auth becomes available so myRank is populated
-  useEffect(() => {
-    if (state.sessionId) {
-      void refreshLeaderboard();
-    }
-  }, [state.sessionId, refreshLeaderboard]);
-
   return {
     tab,
     setTab,
