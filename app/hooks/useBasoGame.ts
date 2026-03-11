@@ -190,7 +190,7 @@ export function useBasoGame(): UseBasoGameReturn {
           },
         });
         if (res.status === 404 || !res.ok) {
-          setDailyClaimStatus({ can_claim_daily: true, last_claim_at: null });
+          // Don't overwrite with "Available" on error — keep current state to avoid resetting after claim
           setLastGMDay(null);
           return;
         }
@@ -203,7 +203,7 @@ export function useBasoGame(): UseBasoGameReturn {
           if (data.can_claim_daily) setLastGMDay(null);
         }
       } catch {
-        setDailyClaimStatus({ can_claim_daily: true, last_claim_at: null });
+        // Don't overwrite on error — keeps "Done" state after successful claim if fetch fails
       }
     },
     [getToken]
@@ -474,6 +474,11 @@ export function useBasoGame(): UseBasoGameReturn {
       };
       if (data.ok && data.balance != null) {
         setLastGMDay(today);
+        // Optimistically set "Done" immediately so button stays disabled until next day even if fetch fails
+        setDailyClaimStatus({
+          can_claim_daily: false,
+          last_claim_at: new Date().toISOString(),
+        });
         await refreshState();
         await fetchDailyStatus(walletChainId ?? 8453);
         showToast(`+1000 points! Balance: ${data.balance.toLocaleString()}`);
@@ -500,6 +505,10 @@ export function useBasoGame(): UseBasoGameReturn {
         showToast(msg);
         if (data.reason === "already_claimed_today" || data.reason === "tx_already_used") {
           setLastGMDay(today);
+          setDailyClaimStatus({
+            can_claim_daily: false,
+            last_claim_at: new Date().toISOString(),
+          });
           fetchDailyStatus(walletChainId ?? 8453);
         }
       }
