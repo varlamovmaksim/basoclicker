@@ -17,9 +17,8 @@ export async function generateMetadata(): Promise<Metadata> {
     title: farcasterConfig.miniapp.name,
     description: farcasterConfig.miniapp.description,
     icons: {
-      icon: [
-        { url: "/favicon.svg", type: "image/svg+xml" },
-        { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+        icon: [
+        { url: "/hero.png", type: "image/png", sizes: "512x512" },
       ],
     },
     other: {
