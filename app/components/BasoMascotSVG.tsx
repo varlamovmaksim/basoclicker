@@ -32,7 +32,17 @@ export function BasoMascotSVG({
   const highlightStroke = frostColor.toLowerCase() === "#ffffff" ? "rgba(7,17,41,.20)" : "#FFFFFF";
 
   return (
-    <svg width="300" height="280" viewBox="0 0 300 280" style={{ userSelect: "none" }}>
+    <svg
+      viewBox="0 0 300 280"
+      preserveAspectRatio="xMidYMid meet"
+      style={{
+        width: "100%",
+        height: "100%",
+        maxWidth: 300,
+        maxHeight: 280,
+        userSelect: "none",
+      }}
+    >
       <g className={`eatRoot ${eatClass}`}>
         <g className="basoBody">
           <circle cx="124" cy="156" r="94" fill="#1E63FF" />

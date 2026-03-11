@@ -19,7 +19,7 @@ export function TopHeader({
         <h1 className="text-[24px] leading-snug font-black tracking-tight text-slate-900 truncate">
           Baso Clicker
         </h1>
-        <p className="mt-3 text-[16px] leading-snug font-semibold text-slate-600">
+        <p className="mt-1.5 text-[16px] leading-snug font-semibold text-slate-600">
           Tap Baso to earn 🍩
         </p>
       </div>
@@ -27,7 +27,7 @@ export function TopHeader({
       <div className="flex gap-2 shrink-0">
         <button
           type="button"
-          className={`flex h-[72px] w-[72px] flex-col items-center justify-center rounded-xl border text-[10px] font-black ${
+          className={`flex h-[60px] w-[60px] flex-col items-center justify-center rounded-xl border text-[10px] font-black ${
             dailyStatus === "Available"
               ? "border-emerald-300/80 bg-emerald-50 shadow-sm"
               : "border-slate-200 bg-slate-50/90 opacity-70"
@@ -46,7 +46,7 @@ export function TopHeader({
 
         <button
           type="button"
-          className="flex h-[72px] w-[72px] flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-[10px] font-black shadow-sm"
+          className="flex h-[60px] w-[60px] flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-[10px] font-black shadow-sm"
           onClick={(e) => {
             e.preventDefault();
             onDonateHalf();

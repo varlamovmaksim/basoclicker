@@ -65,7 +65,7 @@ export function HomeView(): React.ReactElement {
               onDonateHalf={game.donateHalf}
             />
 
-            <div className="mt-5 text-center">
+            <div className="mt-3 text-center">
               <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
@@ -78,16 +78,16 @@ export function HomeView(): React.ReactElement {
                 >
                   🍩
                 </button>
-                <div className="text-[54px] font-black tracking-tight text-slate-900 leading-none">
+                <div className="text-[44px] font-black tracking-tight text-slate-900 leading-none">
                   {formatCompact(Math.floor(game.score))}
                 </div>
               </div>
             </div>
 
-            <div className="mt-3">
+            <div className="mt-2">
               <div
                 ref={stageRef}
-                className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[340px] justify-center items-center shadow-sm stageSkinWhite"
+                className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[min(260px,32vh)] justify-center items-center shadow-sm stageSkinWhite"
               >
                 <button
                   type="button"
@@ -126,7 +126,7 @@ export function HomeView(): React.ReactElement {
                 )}
               </div>
 
-              <Card className="mt-4">
+              <Card className="mt-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-lg" aria-hidden>⚡</span>
@@ -143,7 +143,7 @@ export function HomeView(): React.ReactElement {
                 </div>
                 <ProgressBar pct={clamp(game.displayEnergy / Math.max(1, game.tapState.energyMax), 0, 1)} />
 
-                <div className="mt-3 flex items-center justify-between">
+                <div className="mt-2 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span aria-hidden>👆</span>
                     <span className="font-black text-slate-900">Tap</span>
@@ -154,7 +154,7 @@ export function HomeView(): React.ReactElement {
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-between">
+                <div className="mt-2 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span aria-hidden>⏱️</span>
                     <span className="font-black text-slate-900">Mining</span>
@@ -167,7 +167,7 @@ export function HomeView(): React.ReactElement {
               </Card>
             </div>
 
-            <div className="mt-3 mb-4">
+            <div className="mt-2 mb-3">
               <NavRow tab={game.tab} setTab={game.setTab} />
             </div>
           </>
