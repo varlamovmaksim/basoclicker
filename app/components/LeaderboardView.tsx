@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
 
@@ -37,9 +36,6 @@ export interface LeaderboardViewProps {
   score: number;
 }
 
-/** Delay before retrying leaderboard fetch when myRank is null (auth may not be ready yet). */
-const RETRY_MYRANK_DELAY_MS = 1500;
-
 export function LeaderboardView({
   leaderboard,
   leaderboardLoading,
@@ -47,22 +43,6 @@ export function LeaderboardView({
   refreshLeaderboard,
   score,
 }: LeaderboardViewProps): React.ReactElement {
-  const hasRetriedForMyRank = useRef(false);
-
-  // Retry once when leaderboard loads without myRank (auth may have been pending on first load)
-  useEffect(() => {
-    if (
-      leaderboard &&
-      leaderboard.myRank === null &&
-      !leaderboardLoading &&
-      !hasRetriedForMyRank.current
-    ) {
-      hasRetriedForMyRank.current = true;
-      const t = setTimeout(() => void refreshLeaderboard(), RETRY_MYRANK_DELAY_MS);
-      return () => clearTimeout(t);
-    }
-  }, [leaderboard, leaderboardLoading, refreshLeaderboard]);
-
   if (leaderboardLoading && !leaderboard) {
     return (
       <div className="flex justify-center py-8 text-sm text-slate-500">

@@ -801,9 +801,12 @@ export function useBasoGame(): UseBasoGameReturn {
     }
   }, [getToken]);
 
+  // Fetch leaderboard only when auth is ready so myRank is available immediately
   useEffect(() => {
-    refreshLeaderboard();
-  }, [refreshLeaderboard]);
+    if (state.sessionId) {
+      void refreshLeaderboard();
+    }
+  }, [state.sessionId, refreshLeaderboard]);
 
   return {
     tab,
