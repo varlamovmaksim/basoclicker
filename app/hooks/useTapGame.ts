@@ -298,7 +298,11 @@ export function useTapGame(): UseTapGameReturn {
       if (typeof window !== "undefined") {
         try {
           const url = new URL(window.location.href);
-          const ref = url.searchParams.get("ref");
+          let ref = url.searchParams.get("ref");
+          if (!ref) {
+            const m = url.pathname.match(/^\/ref\/([^/]+)/);
+            ref = m?.[1] ?? null;
+          }
           if (ref) body.referral_code = ref.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16);
         } catch {
           // ignore

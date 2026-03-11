@@ -545,8 +545,10 @@ export function useBasoGame(): UseBasoGameReturn {
         : process.env.NEXT_PUBLIC_URL || "";
     const base = raw && !/^https?:\/\//i.test(raw) ? `https://${raw}` : raw;
     try {
-      const origin = base ? new URL(base).origin : "";
-      return origin ? `${origin}?ref=${encodeURIComponent(referralCode)}` : "";
+      const url = base ? new URL(base) : null;
+      const domain = url?.host ?? "";
+      if (!domain) return "";
+      return `https://base.app/app/${domain}/ref/${encodeURIComponent(referralCode)}`;
     } catch {
       return "";
     }
