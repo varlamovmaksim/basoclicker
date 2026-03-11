@@ -2,9 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { BoosterListItem, TapGameState } from "../hooks/useTapGame";
-import { Card } from "./shared/Card";
 import { formatCompact } from "../../lib/baso/utils";
-import { SKINS } from "../../lib/baso/constants";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 
 export interface ShopViewProps {
@@ -14,8 +12,6 @@ export interface ShopViewProps {
   getToken: () => Promise<string | null>;
   applyOptimisticPurchaseDeduction: (amount: number) => void;
   revertOptimisticPurchaseDeduction: (amount: number) => void;
-  skinStageClass: string;
-  setSkin: (id: string) => void;
 }
 
 type BoostCategory = "tap" | "auto" | "energy";
@@ -119,8 +115,6 @@ export function ShopView({
   getToken,
   applyOptimisticPurchaseDeduction,
   revertOptimisticPurchaseDeduction,
-  skinStageClass,
-  setSkin,
 }: ShopViewProps): React.ReactElement {
   const [boostCategory, setBoostCategory] = useState<BoostCategory>("tap");
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
@@ -285,45 +279,6 @@ export function ShopView({
           />
         ))}
       </div>
-
-      <Card>
-        <div className="font-black text-slate-900">Customization</div>
-        <div className="mt-1 text-sm font-extrabold text-slate-500">
-          More cosmetics coming soon.
-        </div>
-      </Card>
-
-      <Card>
-        <div className="font-black text-slate-900">Skins</div>
-        <div className="mt-1 text-sm font-extrabold text-slate-500">
-          Choose a scene background.
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {SKINS.map((skin) => (
-            <button
-              key={skin.id}
-              type="button"
-              className={`flex flex-col rounded-2xl border-2 p-2 text-left ${
-                skinStageClass === skin.stageClass
-                  ? "border-[var(--blue)] bg-[var(--blue)]/5 outline outline-2 outline-[var(--blue)]/30"
-                  : "border-slate-200 bg-white/80"
-              }`}
-              onClick={(e) => {
-                e.preventDefault();
-                setSkin(skin.id);
-              }}
-              aria-label={`skin-${skin.id}`}
-            >
-              <div
-                className={`aspect-square w-full rounded-xl border border-slate-200 ${skin.stageClass}`}
-              />
-              <div className="mt-2 truncate text-xs font-black text-slate-900">
-                {skin.name}
-              </div>
-            </button>
-          ))}
-        </div>
-      </Card>
     </div>
   );
 }

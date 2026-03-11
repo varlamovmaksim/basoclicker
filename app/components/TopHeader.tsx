@@ -40,7 +40,7 @@ export function TopHeader({
           <span className="text-base leading-none">🗓️</span>
           <span className="mt-1 font-extrabold text-slate-900">Daily</span>
           <span className="mt-0.5 font-bold text-slate-500 text-[10px]">
-            {dailyStatus === "Available" ? dailyTimeLeft : "Done"}
+            {dailyStatus === "Available" ? "+1,000 🍩" : "Done"}
           </span>
         </button>
 

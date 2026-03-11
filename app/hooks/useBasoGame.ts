@@ -5,7 +5,7 @@ import { useAccount, useConfig, usePublicClient, useWalletClient } from "wagmi";
 import { getCallsStatus, getWalletClient, sendCalls } from "@wagmi/core";
 import { useTapGame } from "./useTapGame";
 import type { BasoShopTab, BasoTabKey, BasoPersisted } from "../../lib/baso/types";
-import { DONUT_CYCLE, SKINS, STORAGE_KEY_BASO } from "../../lib/baso/constants";
+import { DONUT_CYCLE, STORAGE_KEY_BASO } from "../../lib/baso/constants";
 import { msToHHMM, safeParse, todayKeyLocal, uid } from "../../lib/baso/utils";
 
 const DAILY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
@@ -67,9 +67,6 @@ export interface UseBasoGameReturn {
   setRefCodeInput: (v: string) => void;
   applyReferralCode: () => void;
 
-  skinStageClass: string;
-  setSkin: (id: string) => void;
-
   /** Prepare and send approve + donate(0.5 USDC) transaction. */
   donateHalf: () => Promise<void>;
 
@@ -119,7 +116,6 @@ function loadPersisted(): BasoPersisted | null {
   const parsed = safeParse<BasoPersisted>(raw);
   if (!parsed) return null;
   return {
-    skinId: parsed.skinId || "white",
     lastGMDay: parsed.lastGMDay ?? null,
     referralCode:
       parsed.referralCode && parsed.referralCode.length >= 4
@@ -164,7 +160,6 @@ export function useBasoGame(): UseBasoGameReturn {
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
 
   const persisted = useMemo(() => loadPersisted(), []);
-  const [skinId, setSkinId] = useState<string>(persisted?.skinId ?? "white");
   const [lastGMDay, setLastGMDay] = useState<string | null>(persisted?.lastGMDay ?? null);
   const [referralCode, _setReferralCode] = useState<string>(
     persisted?.referralCode ??
@@ -274,14 +269,13 @@ export function useBasoGame(): UseBasoGameReturn {
 
   useEffect(() => {
     const data: BasoPersisted = {
-      skinId,
       lastGMDay,
       referralCode,
       referrals,
       appliedReferralCode,
     };
     savePersisted(data);
-  }, [skinId, lastGMDay, referralCode, referrals, appliedReferralCode]);
+  }, [lastGMDay, referralCode, referrals, appliedReferralCode]);
 
   useEffect(() => {
     if (tab === "shop") setShopTab("earn");
@@ -501,7 +495,9 @@ export function useBasoGame(): UseBasoGameReturn {
                       ? "Wrong call (recordDaily)"
                       : reason === "rpc_error"
                         ? "RPC error (check BASE_RPC_URL)"
-                        : `Claim failed: ${reason}`;
+                        : reason === "balance_update_failed"
+                          ? "Points update failed (try again)"
+                          : `Claim failed: ${reason}`;
         showToast(msg);
         if (data.reason === "already_claimed_today" || data.reason === "tx_already_used") {
           setLastGMDay(today);
@@ -615,19 +611,6 @@ export function useBasoGame(): UseBasoGameReturn {
       showToast("Failed to apply code");
     }
   }, [appliedReferralCode, refCodeInput, referralCode, getToken, showToast]);
-
-  const skin = useMemo(
-    () => SKINS.find((x) => x.id === skinId) ?? SKINS[0],
-    [skinId]
-  );
-
-  const setSkin = useCallback(
-    (id: string) => {
-      setSkinId(id);
-      showToast("Skin applied");
-    },
-    [showToast]
-  );
 
   const DONATE_AMOUNT_USDC = 0.5;
 
@@ -837,9 +820,6 @@ export function useBasoGame(): UseBasoGameReturn {
     refCodeInput,
     setRefCodeInput,
     applyReferralCode,
-
-    skinStageClass: skin.stageClass,
-    setSkin,
 
     donateHalf,
 

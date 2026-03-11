@@ -87,7 +87,7 @@ export function HomeView(): React.ReactElement {
             <div className="mt-3">
               <div
                 ref={stageRef}
-                className={`relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[340px] justify-center items-center shadow-sm ${game.skinStageClass}`}
+                className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-white flex min-h-[340px] justify-center items-center shadow-sm stageSkinWhite"
               >
                 <button
                   type="button"
@@ -204,8 +204,6 @@ export function HomeView(): React.ReactElement {
                 getToken={game.getToken}
                 applyOptimisticPurchaseDeduction={game.applyOptimisticPurchaseDeduction}
                 revertOptimisticPurchaseDeduction={game.revertOptimisticPurchaseDeduction}
-                skinStageClass={game.skinStageClass}
-                setSkin={game.setSkin}
               />
             )}
             {game.tab === "dev" && IS_DEV && (

@@ -25,7 +25,8 @@ export type DailyClaimResult =
         | "user_not_found"
         | "wallet_mismatch"
         | "tx_already_used"
-        | "already_claimed_today";
+        | "already_claimed_today"
+        | "balance_update_failed";
     };
 
 interface RpcRequestBody {
@@ -242,6 +243,7 @@ export async function verifyAndApplyDailyClaim(
       return { ok: false, reason: "already_claimed_today" } as DailyClaimResult;
     }
 
+    const previousBalance = user.balance;
     const { balance } = await createDailyClaimAndAddPoints(
       user.id,
       txHash,
@@ -250,6 +252,11 @@ export async function verifyAndApplyDailyClaim(
       now,
       txClient
     );
+
+    // If we added points but balance didn't increase, the update likely failed
+    if (balance <= previousBalance && POINTS_PER_CLAIM > 0) {
+      return { ok: false, reason: "balance_update_failed" } as DailyClaimResult;
+    }
 
     return { ok: true, balance };
   });
