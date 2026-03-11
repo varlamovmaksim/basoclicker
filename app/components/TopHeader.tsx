@@ -10,7 +10,7 @@ export interface TopHeaderProps {
 export function TopHeader({
   onOpenDailyGM,
   dailyStatus,
-  dailyTimeLeft,
+  dailyTimeLeft: _dailyTimeLeft,
   onDonateHalf,
 }: TopHeaderProps): React.ReactElement {
   return (
