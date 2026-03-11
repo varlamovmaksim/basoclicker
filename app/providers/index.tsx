@@ -6,12 +6,13 @@ import { createConfig, http, WagmiProvider } from "wagmi";
 import { baseAccount, injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
+import { OnchainKitProvider } from "@coinbase/onchainkit";
 import { MiniAppProvider } from "./MiniAppProvider";
 import { farcasterConfig } from "@/farcaster.config";
 
 /**
  * Base Account = Coinbase smart account on Base. Supports batch calls (EIP-5792 sendCalls).
- * Gas sponsorship is not configured in this repo; if any, it is on Base/Coinbase infra side.
+ * Gas sponsorship via OnchainKitProvider (CDP paymaster when NEXT_PUBLIC_ONCHAINKIT_API_KEY set).
  */
 export const config = createConfig({
   chains: [base],
@@ -31,11 +32,13 @@ export function Providers({ children }: { children: ReactNode }): ReactNode {
 
   return (
     <MiniAppProvider>
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          {children}
-        </QueryClientProvider>
-      </WagmiProvider>
+      <OnchainKitProvider chain={base} miniKit={{ enabled: true }}>
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            {children}
+          </QueryClientProvider>
+        </WagmiProvider>
+      </OnchainKitProvider>
     </MiniAppProvider>
   );
 }

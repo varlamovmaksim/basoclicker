@@ -18,7 +18,7 @@ export const farcasterConfig = {
     name: "Baso",
     subtitle: "Tap the screen and feed Baso",
     description: "Collect points and climb the leaderboard.",
-    iconUrl: `${ROOT_URL}/favicon.png`,
+    iconUrl: `${ROOT_URL}/hero.png`,
     splashImageUrl: `${ROOT_URL}/hero.png`,
     splashBackgroundColor: "#000000",
     homeUrl: ROOT_URL,

@@ -8,16 +8,19 @@
 const BASE_CHAIN_ID = 8453;
 const BASE_CHAIN_ID_HEX = "0x2105";
 
-/** Default paymaster URL for Base. */
-const DEFAULT_BASE_PAYMASTER_URL = "https://paymaster.base.org/api/v1/sponsor";
+/** Default paymaster URL for Base. For CDP sponsorship use: https://api.developer.coinbase.com/rpc/v1/base/YOUR_KEY */
+const DEFAULT_BASE_PAYMASTER_URL = "https://paymaster.base.org";
 
 /**
  * Returns paymaster service URL for sponsored (gasless) transactions on Base chain.
+ * Prefer NEXT_PUBLIC_PAYMASTER_SERVICE_URL (CDP) when set for full gas sponsorship.
  */
 export function getPaymasterServiceUrl(chainId?: number): string | null {
   if (typeof window === "undefined") return null;
-  if (chainId === BASE_CHAIN_ID) return DEFAULT_BASE_PAYMASTER_URL;
-  return null;
+  if (chainId !== BASE_CHAIN_ID) return null;
+  const envUrl =
+    typeof process !== "undefined" && process.env?.NEXT_PUBLIC_PAYMASTER_SERVICE_URL;
+  return (envUrl && envUrl.length > 0 ? envUrl : DEFAULT_BASE_PAYMASTER_URL) as string;
 }
 
 export interface SendCallsCall {

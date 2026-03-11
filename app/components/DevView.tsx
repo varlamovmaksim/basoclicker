@@ -6,7 +6,6 @@ import { useConnect, useDisconnect, useAccount } from "wagmi";
 import { getDevAuthHeaders } from "@/app/lib/devFingerprint";
 import { encodeFunctionData } from "viem";
 import { getVaultAddress, getTokenAddress, TAPPER_VAULT_ABI } from "@/app/lib/contracts";
-import { getPaymasterServiceUrl } from "@/app/lib/sponsoredTx";
 import { config } from "@/app/providers";
 import type { TapGameDebug, TapGameState } from "../hooks/useTapGame";
 
@@ -45,7 +44,6 @@ export function DevView({
 }: DevViewProps): React.ReactElement {
   const vaultAddr = getVaultAddress();
   const tokenAddr = getTokenAddress();
-  const paymasterUrl = getPaymasterServiceUrl(chainId);
   const recordDailySelector =
     encodeFunctionData({
       abi: TAPPER_VAULT_ABI,
@@ -132,12 +130,6 @@ export function DevView({
           <div className="flex justify-between gap-2">
             <dt>Chain ID</dt>
             <dd>{chainId}</dd>
-          </div>
-          <div className="flex justify-between gap-2">
-            <dt>Paymaster</dt>
-            <dd className={paymasterUrl ? "text-emerald-600" : "text-amber-600"}>
-              {paymasterUrl ? "set" : "not set"}
-            </dd>
           </div>
           <div className="flex justify-between gap-2">
             <dt>recordDaily() selector</dt>

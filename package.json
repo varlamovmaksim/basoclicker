@@ -13,6 +13,7 @@
     "db:push": "NODE_TLS_REJECT_UNAUTHORIZED=0 drizzle-kit push"
   },
   "dependencies": {
+    "@coinbase/onchainkit": "^1.1.2",
     "@farcaster/miniapp-sdk": "^0.2.0",
     "@farcaster/miniapp-wagmi-connector": "^1.1.0",
     "@farcaster/quick-auth": "^0.0.7",

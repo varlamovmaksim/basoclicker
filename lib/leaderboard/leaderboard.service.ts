@@ -1,3 +1,4 @@
+import { normalizeWalletAddress } from "@/lib/user/identity";
 import {
   getRankByAddress,
   getTopByBalance,
@@ -30,9 +31,10 @@ export async function getLeaderboard(address: string | null): Promise<Leaderboar
     address ? getRankByAddress(address) : Promise.resolve(null),
   ]);
 
-  const top100WithYou = address
+  const normalizedAddress = address ? normalizeWalletAddress(address) : null;
+  const top100WithYou = normalizedAddress
     ? top100.map((row) =>
-        row.walletAddress === address ? { ...row, isYou: true } : row
+        row.walletAddress === normalizedAddress ? { ...row, isYou: true } : row
       )
     : top100;
 

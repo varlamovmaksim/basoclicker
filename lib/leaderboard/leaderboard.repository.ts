@@ -1,6 +1,7 @@
 import { asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { userFids as userFidsTable, users as usersTable } from "@/lib/db/schema";
+import { normalizeWalletAddress } from "@/lib/user/identity";
 
 export interface LeaderboardEntry {
   rank: number;
@@ -87,13 +88,16 @@ export async function getTotalPlayers(): Promise<number> {
  * Rank = number of users with strictly greater balance + 1.
  */
 export async function getRankByAddress(address: string): Promise<number | null> {
+  const normalized = normalizeWalletAddress(address);
+  if (!normalized) return null;
+
   const user = await db
     .select({
       balance: usersTable.balance,
       walletAddress: usersTable.walletAddress,
     })
     .from(usersTable)
-    .where(eq(usersTable.walletAddress, address))
+    .where(eq(usersTable.walletAddress, normalized))
     .limit(1);
 
   const balance = user[0]?.balance;
