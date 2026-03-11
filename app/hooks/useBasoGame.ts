@@ -160,7 +160,9 @@ export function useBasoGame(): UseBasoGameReturn {
   const [shopTab, setShopTab] = useState<BasoShopTab>("earn");
 
   const persisted = useMemo(() => loadPersisted(), []);
-  const [lastGMDay, setLastGMDay] = useState<string | null>(persisted?.lastGMDay ?? null);
+  const [lastGMDay, setLastGMDay] = useState<string | null>(
+    () => loadPersisted()?.lastGMDay ?? null
+  );
   const [referralCode, _setReferralCode] = useState<string>(
     persisted?.referralCode ??
       ("BASO" + (typeof window !== "undefined" ? Math.random().toString(36).slice(2, 7).toUpperCase() : "XXXXX"))
@@ -338,7 +340,9 @@ export function useBasoGame(): UseBasoGameReturn {
   );
 
   const today = todayKeyLocal();
-  const gmAvailable = dailyClaimStatus.can_claim_daily;
+  // Use persisted lastGMDay so button stays "Done" after reload until next day
+  const gmAvailable =
+    lastGMDay !== today && dailyClaimStatus.can_claim_daily;
   const dailyTimeLeft = useMemo(() => {
     void countdownTick; // force re-run every second while in cooldown
     if (dailyClaimStatus.can_claim_daily) return "";
