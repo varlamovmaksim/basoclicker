@@ -13,15 +13,29 @@ export interface LeaderboardRowData {
   isYou?: boolean;
 }
 
-/** Display order: display_name, username, wallet_address, fid */
-function leaderboardDisplayName(row: LeaderboardRowData): string {
-  return (
-    row.displayName ??
-    row.username ??
-    row.walletAddress ??
-    row.fid ??
-    "Unknown player"
-  );
+function shortenWalletAddressMiddle(address: string): string {
+  const addr = address.trim();
+  // Typical EVM address format: 0x + 40 hex chars
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) return addr;
+  // Keep `0x` + first 4 chars and last 4 chars: 0x1234...abcd
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+/**
+ * Display order: display_name, username, wallet_address, fid
+ * When wallet address is shown, shorten the middle (keep beginning+end).
+ */
+function leaderboardDisplay(row: LeaderboardRowData): { text: string; title?: string } {
+  if (row.displayName) return { text: row.displayName };
+  if (row.username) return { text: row.username };
+  if (row.walletAddress) {
+    return {
+      text: shortenWalletAddressMiddle(row.walletAddress),
+      title: row.walletAddress,
+    };
+  }
+  if (row.fid) return { text: row.fid };
+  return { text: "Unknown player" };
 }
 
 export interface LeaderboardViewProps {
@@ -132,28 +146,35 @@ export function LeaderboardView({
           )}
         </div>
         <div className="mt-2 flex flex-col gap-2">
-          {top100.map((x) => (
-            <div
-              key={`${x.rank}:${x.walletAddress ?? x.fid ?? "unknown"}`}
-              className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${
-                x.isYou
-                  ? "border-blue-300 bg-blue-50"
-                  : "border-slate-200 bg-white/80"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 text-xs font-black text-slate-500">
-                  #{x.rank}
+          {top100.map((x) => {
+            const display = x.isYou ? { text: "You" } : leaderboardDisplay(x);
+
+            return (
+              <div
+                key={`${x.rank}:${x.walletAddress ?? x.fid ?? "unknown"}`}
+                className={`flex items-center justify-between rounded-2xl border px-3 py-2 text-sm ${
+                  x.isYou
+                    ? "border-blue-300 bg-blue-50"
+                    : "border-slate-200 bg-white/80"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 text-xs font-black text-slate-500">
+                    #{x.rank}
+                  </div>
+                  <div
+                    className="text-sm font-black text-slate-900"
+                    title={display.title}
+                  >
+                    {display.text}
+                  </div>
                 </div>
                 <div className="text-sm font-black text-slate-900">
-                  {x.isYou ? "You" : leaderboardDisplayName(x)}
+                  {formatCompact(Math.floor(x.score))}
                 </div>
               </div>
-              <div className="text-sm font-black text-slate-900">
-                {formatCompact(Math.floor(x.score))}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     </div>
